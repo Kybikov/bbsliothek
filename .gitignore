@@ -1,0 +1,14 @@
+.DS_Store
+.idea/
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+*.pyd
+
+downloads/*
+!downloads/.gitkeep
+
+storage/materials/*
+!storage/materials/.gitkeep
