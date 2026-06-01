@@ -213,19 +213,28 @@ def material_hochladen(quelldatei, autor_id, titel=None, thema_id=None, material
     dateityp = ext.lower() if ext else "unbekannt"
     groesse = os.path.getsize(quelldatei)
 
-    # Datei in den Storage-Ordner kopieren
-    if not os.path.exists(STORAGE_ORDNER):
-        os.makedirs(STORAGE_ORDNER)
+    # Speicherstrategie entscheiden: unter 1 MB -> BLOB, sonst -> Dateisystem
+    BLOB_GRENZE = 1_000_000  # 1 MB in Bytes
 
-    ziel_pfad = os.path.join(STORAGE_ORDNER, dateiname)
-    shutil.copy2(quelldatei, ziel_pfad)
+    if groesse < BLOB_GRENZE:
+        # Kleine Datei: direkt als BLOB in die Datenbank speichern
+        strategie = "DB_BLOB"
+        with open(quelldatei, "rb") as f:
+            blob_inhalt = f.read()
+        ziel_pfad = None
+    else:
+        # Große Datei: ins Dateisystem kopieren, nur Pfad in DB speichern
+        strategie = "DATEISYSTEM"
+        blob_inhalt = None
+        if not os.path.exists(STORAGE_ORDNER):
+            os.makedirs(STORAGE_ORDNER)
+        ziel_pfad = os.path.join(STORAGE_ORDNER, dateiname)
+        shutil.copy2(quelldatei, ziel_pfad)
 
     conn = verbinden()
     cursor = conn.cursor(dictionary=True)
 
     try:
-        conn.start_transaction()
-
         if material_id is None:
             # Neues Material anlegen
             cursor.execute(
@@ -243,13 +252,14 @@ def material_hochladen(quelldatei, autor_id, titel=None, thema_id=None, material
         )
         naechste_version = cursor.fetchone()["naechste"]
 
-        # Version speichern - alle Dateien gehen ins Dateisystem
+        # Version speichern
         cursor.execute(
             "INSERT INTO material_versionen "
             "(material_id, versionsnummer, dateiname, dateityp, dateigroesse_bytes, "
-            "speicherstrategie, dateipfad, erstellt_von, erstellt_am) "
-            "VALUES (%s, %s, %s, %s, %s, 'DATEISYSTEM', %s, %s, NOW())",
-            (material_id, naechste_version, dateiname, dateityp, groesse, ziel_pfad, autor_id)
+            "speicherstrategie, blob_inhalt, dateipfad, erstellt_von, erstellt_am) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())",
+            (material_id, naechste_version, dateiname, dateityp, groesse,
+             strategie, blob_inhalt, ziel_pfad, autor_id)
         )
         version_id = cursor.lastrowid
 
@@ -264,6 +274,7 @@ def material_hochladen(quelldatei, autor_id, titel=None, thema_id=None, material
         return {
             "material_id": material_id,
             "version": naechste_version,
+            "strategie": strategie,
             "pfad": ziel_pfad
         }
 
@@ -285,7 +296,8 @@ def material_herunterladen(material_id, ziel_ordner=None):
     conn = verbinden()
     cursor = conn.cursor(dictionary=True)
     cursor.execute(
-        "SELECT dateiname, dateipfad FROM vw_material_aktuell WHERE material_id = %s",
+        "SELECT dateiname, speicherstrategie, blob_inhalt, dateipfad "
+        "FROM vw_material_aktuell WHERE material_id = %s",
         (material_id,)
     )
     row = cursor.fetchone()
@@ -296,7 +308,15 @@ def material_herunterladen(material_id, ziel_ordner=None):
         raise Exception("Material nicht gefunden (ID: " + str(material_id) + ")")
 
     ziel_datei = os.path.join(ziel_ordner, row["dateiname"])
-    shutil.copy2(row["dateipfad"], ziel_datei)
+
+    if row["speicherstrategie"] == "DB_BLOB":
+        # BLOB aus der Datenbank in eine Datei schreiben
+        with open(ziel_datei, "wb") as f:
+            f.write(row["blob_inhalt"])
+    else:
+        # Datei vom Dateisystem kopieren
+        shutil.copy2(row["dateipfad"], ziel_datei)
+
     return ziel_datei
 
 

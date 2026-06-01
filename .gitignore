@@ -1,4 +1,5 @@
 .env
+.claude
 .DS_Store
 .idea/
 .venv/
@@ -13,3 +14,8 @@ downloads/*
 
 storage/materials/*
 !storage/materials/.gitkeep
+
+# PyInstaller / flet pack
+build/
+BBSliothek.spec
+*.spec

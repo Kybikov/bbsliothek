@@ -1,1 +1,0 @@
-"""Datenzugriff für die BBSliothek."""

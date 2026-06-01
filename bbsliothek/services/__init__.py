@@ -1,1 +1,0 @@
-"""Geschäftslogik der BBSliothek."""
