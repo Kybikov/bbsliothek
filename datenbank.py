@@ -13,12 +13,20 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Verbindungsdaten aus Umgebungsvariablen lesen
-# Frühere Version: Werte waren direkt im Code (hardcoded):
+#
+# Version 1 (hardcoded, nur lokal):
 #   DB_HOST = "127.0.0.1"
 #   DB_USER = "root"
 #   DB_PASSWORD = ""
-# Dann auf Umgebungsvariablen umgestellt damit der Code auf
-# verschiedenen Systemen (lokal + Server) ohne Änderungen läuft
+#
+# Version 2 (Umgebungsvariablen, lokal via .env):
+#   DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
+#
+# Version 3 (aktuell - lokal .env ODER Coolify Environment Variables):
+#   Lokal:   .env mit DB_HOST=127.0.0.1
+#   Server:  Coolify setzt DB_HOST=xj7evbux1foptqdig1zg2a0z
+#   App/APK: DB_HOST=84.46.249.194 (öffentliche IP, Port 3306 muss offen sein)
+#
 DB_HOST     = os.getenv("DB_HOST",     "127.0.0.1")
 DB_PORT     = int(os.getenv("DB_PORT", "3306"))
 DB_NAME     = os.getenv("DB_NAME",     "bbsliothek")
