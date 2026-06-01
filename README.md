@@ -95,8 +95,36 @@ DOWNLOAD_ROOT=downloads
 ## Anwendung starten
 
 ```bash
+# Desktop-Modus (Standard)
 python main.py
+
+# Browser-Modus (auch vom Handy erreichbar)
+python main.py --web
+# Dann im Browser: http://localhost:8550
+# Im lokalen Netzwerk (Handy): http://<IP-Adresse>:8550
 ```
+
+### Testbenutzer (nach Seed-Daten)
+
+| Name | Passwort | Rolle |
+|---|---|---|
+| Mia Hoffmann | lehrer123 | Lehrkraft |
+| Jonas Becker | lehrer123 | Lehrkraft |
+| Aylin Yilmaz | azubi123 | Auszubildende |
+| Luca Schneider | azubi123 | Auszubildende |
+
+## Funktionsumfang (aktuell)
+
+- Login mit Benutzername und Passwort
+- Lernmaterialien hochladen (Pfad eingeben oder Datei auswählen)
+- Alle Dateien werden im Dateisystem gespeichert (`storage/materials/`)
+- Versionierung: jeder Upload erstellt eine neue Version
+- 7 Standardabfragen (Aggregation, Joins, mehrere Tabellen)
+- Kommentare hinzufügen, bearbeiten (Dialog), löschen
+- Filterbarer Materialien-Überblick (Titel, Typ, Autor)
+- Benutzerverwaltung mit E-Mail-Validierung
+- Themengebiete anlegen und anzeigen
+- Cross-platform: Desktop (Windows/macOS/Linux) und Browser (`--web`)
 
 ## Bekannte Fehler die beim Entwickeln aufgetreten sind
 
@@ -123,14 +151,21 @@ python main.py
   Erst kam die DeprecationWarning (`ft.app` veraltet), nach der Änderung auf `ft.run(target=main)`
   kam ein TypeError. Die korrekte Schreibweise ist `ft.run(main)` ohne Keyword.
 
-- **`TypeError: FilePicker.__init__() got an unexpected keyword argument 'on_result'`** dann
-  **`Unknown control: FilePicker`** –
-  Zuerst hat der FilePicker-Konstruktor `on_result` nicht akzeptiert (TypeError).
-  Nach der Korrektur kam der nächste Fehler: FilePicker wird in Flet ≥ 0.80 als
-  "Unknown control" abgelehnt und kann nicht mehr zu `page.overlay` hinzugefügt werden.
-  Da die FilePicker-API in dieser Version komplett gebrochen war, wurde die Funktion
-  durch ein einfaches Textfeld für den Dateipfad ersetzt — der Benutzer kopiert den
-  Pfad manuell aus dem Explorer (Rechtsklick → "Als Pfad kopieren").
+- **FilePicker — 5 Versuche bis zur Lösung:**
+  1. `ft.FilePicker(on_result=handler)` im Konstruktor → `TypeError`
+  2. `file_picker.on_result = handler` + `page.overlay.append()` beim Upload → `Unknown control`
+  3. `page.overlay.append()` einmalig beim App-Start → `Unknown control` schon beim Login
+  4. Temporär durch `TextField` für Pfadeingabe ersetzt (funktioniert, aber kein Dateidialog)
+  5. Richtige Lösung gefunden (flet.app/gallery): FilePicker ist in 0.80 `async`:
+  ```python
+  async def datei_auswaehlen(e):
+      picker = ft.FilePicker()           # kein page.overlay!
+      files = await picker.pick_files()  # async/await
+      if files and files[0].path:
+          pfad_feld.value = files[0].path
+  ```
+  Im Browser-Modus ist `files[0].path` immer `None` (Browser-Sicherheitsbeschränkung)
+  → Benutzer gibt den Pfad dort manuell ein.
 
 - **`DeprecationWarning: ElevatedButton is deprecated since version 0.80.0`** –
   `ft.ElevatedButton` wurde durch `ft.FilledButton` ersetzt.

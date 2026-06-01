@@ -4,30 +4,33 @@
 import mysql.connector
 from mysql.connector import Error
 import os
-import hashlib
 import shutil
+import re
+from dotenv import load_dotenv
 
+# .env Datei laden (falls vorhanden)
+# Quelle: https://pypi.org/project/python-dotenv/
+load_dotenv()
 
 # Verbindungsdaten aus Umgebungsvariablen lesen
-# (damit das Passwort nicht im Code steht)
-DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
-DB_PORT = int(os.getenv("DB_PORT", "3306"))
-DB_NAME = os.getenv("DB_NAME", "bbsliothek")
-DB_USER = os.getenv("DB_USER", "root")
+# Frühere Version: Werte waren direkt im Code (hardcoded):
+#   DB_HOST = "127.0.0.1"
+#   DB_USER = "root"
+#   DB_PASSWORD = ""
+# Dann auf Umgebungsvariablen umgestellt damit der Code auf
+# verschiedenen Systemen (lokal + Server) ohne Änderungen läuft
+DB_HOST     = os.getenv("DB_HOST",     "127.0.0.1")
+DB_PORT     = int(os.getenv("DB_PORT", "3306"))
+DB_NAME     = os.getenv("DB_NAME",     "bbsliothek")
+DB_USER     = os.getenv("DB_USER",     "root")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 
-# Ordner für Dateien und Downloads
-STORAGE_ORDNER = os.getenv("STORAGE_ROOT", "storage/materials")
+STORAGE_ORDNER  = os.getenv("STORAGE_ROOT",  "storage/materials")
 DOWNLOAD_ORDNER = os.getenv("DOWNLOAD_ROOT", "downloads")
-
-# Dateien unter 1 MB werden als BLOB in die DB gespeichert
-# Dateien über 1 MB werden nur als Pfad gespeichert (Performance)
-MAX_BLOB_GROESSE = 1_000_000
 
 
 def verbinden():
     # Verbindung zur MySQL-Datenbank herstellen
-    # Quelle: https://dev.mysql.com/doc/connector-python/en/connector-python-example-connecting.html
     try:
         conn = mysql.connector.connect(
             host=DB_HOST,
@@ -37,234 +40,42 @@ def verbinden():
             password=DB_PASSWORD
         )
         if conn.is_connected():
-            # print("Datenbankverbindung erfolgreich")  # debug
             return conn
     except Error as e:
-        raise Exception(f"Verbindung zur Datenbank fehlgeschlagen: {e}")
+        raise Exception("Verbindung zur Datenbank fehlgeschlagen: " + str(e))
 
 
-def materialien_laden(titel=None, dateityp=None, thema_id=None):
-    # Alle Materialien aus der View laden, optional gefiltert
+# -----------------------------------------------------------------------
+# Login
+# -----------------------------------------------------------------------
+
+def einloggen(benutzername, passwort):
+    # Benutzer anhand von Name und Passwort suchen
+    # Passwort wird als Klartext verglichen (vereinfacht für Schulprojekt)
     conn = verbinden()
     cursor = conn.cursor(dictionary=True)
-
-    # Basisabfrage - WHERE 1=1 damit man einfach AND anhängen kann
-    # Tipp von Stack Overflow: https://stackoverflow.com/questions/1149545
-    sql = """
-        SELECT material_id, titel, dateiname, dateityp,
-               themengebiet_name AS themengebiet,
-               material_autor_name AS autor,
-               versionsnummer AS version,
-               dateigroesse_bytes,
-               speicherstrategie,
-               material_erstellt_am AS erstellt_am
-        FROM vw_material_aktuell
-        WHERE 1=1
-    """
-    params = []
-
-    # Filter nur hinzufügen wenn ein Wert eingegeben wurde
-    if titel:
-        sql += " AND (titel LIKE %s OR dateiname LIKE %s)"
-        params.append("%" + titel + "%")
-        params.append("%" + titel + "%")
-
-    if dateityp:
-        sql += " AND dateityp LIKE %s"
-        params.append("%" + dateityp + "%")
-
-    if thema_id:
-        sql += " AND themengebiet_id = %s"
-        params.append(thema_id)
-
-    sql += " ORDER BY titel"
-
-    cursor.execute(sql, params)
-    result = cursor.fetchall()
-
-    # Verbindung schließen
-    cursor.close()
-    conn.close()
-
-    return result
-
-
-def material_hochladen(quelldatei, autor_id, titel=None, thema_id=None, material_id=None):
-    # Prüfen ob die Datei überhaupt existiert
-    if not os.path.exists(quelldatei):
-        raise Exception("Datei nicht gefunden: " + quelldatei)
-
-    # Dateiinformationen ermitteln
-    dateiname = os.path.basename(quelldatei)
-    name, ext = os.path.splitext(dateiname)
-    dateityp = ext.lower()
-    groesse = os.path.getsize(quelldatei)
-
-    # Dateiinhalt lesen
-    with open(quelldatei, "rb") as f:
-        datei_inhalt = f.read()
-
-    # SHA256 Prüfsumme berechnen (für spätere Integritätsprüfung)
-    checksumme = hashlib.sha256(datei_inhalt).hexdigest()
-    # print("SHA256:", checksumme)  # debug
-
-    # Speicherstrategie bestimmen je nach Dateigröße
-    if groesse < MAX_BLOB_GROESSE:
-        # Kleine Datei -> direkt als BLOB in die Datenbank
-        strategie = "DB_BLOB"
-        blob_inhalt = datei_inhalt
-        dateipfad = None
-    else:
-        # Große Datei -> ins Dateisystem kopieren, nur Pfad speichern
-        strategie = "DATEISYSTEM"
-        blob_inhalt = None
-        if not os.path.exists(STORAGE_ORDNER):
-            os.makedirs(STORAGE_ORDNER)
-        dateipfad = os.path.join(STORAGE_ORDNER, dateiname)
-        shutil.copy2(quelldatei, dateipfad)
-
-    conn = verbinden()
-    cursor = conn.cursor(dictionary=True)
-
-    try:
-        # Transaktion starten damit bei Fehler alles rückgängig gemacht wird
-        conn.start_transaction()
-
-        if material_id is None:
-            # Neues Material in die Datenbank einfügen
-            cursor.execute(
-                "INSERT INTO materialien (titel, themengebiet_id, erstellt_von, erstellt_am, geaendert_am) "
-                "VALUES (%s, %s, %s, NOW(), NOW())",
-                (titel, thema_id, autor_id)
-            )
-            material_id = cursor.lastrowid
-            # print("Neues Material angelegt, ID:", material_id)  # debug
-
-        # Nächste Versionsnummer berechnen
-        # COALESCE gibt 0 zurück wenn noch keine Version existiert
-        cursor.execute(
-            "SELECT COALESCE(MAX(versionsnummer), 0) + 1 AS naechste "
-            "FROM material_versionen WHERE material_id = %s",
-            (material_id,)
-        )
-        row = cursor.fetchone()
-        naechste_version = row["naechste"]
-
-        # Version speichern
-        cursor.execute(
-            "INSERT INTO material_versionen "
-            "(material_id, versionsnummer, dateiname, dateityp, dateigroesse_bytes, "
-            "speicherstrategie, blob_inhalt, dateipfad, checksumme_sha256, erstellt_von, erstellt_am) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())",
-            (material_id, naechste_version, dateiname, dateityp, groesse,
-             strategie, blob_inhalt, dateipfad, checksumme, autor_id)
-        )
-        version_id = cursor.lastrowid
-
-        # aktuelle_version_id in materialien aktualisieren
-        cursor.execute(
-            "UPDATE materialien SET aktuelle_version_id = %s, geaendert_am = NOW() "
-            "WHERE material_id = %s",
-            (version_id, material_id)
-        )
-
-        conn.commit()
-        return {
-            "material_id": material_id,
-            "version": naechste_version,
-            "strategie": strategie
-        }
-
-    except Exception as e:
-        # Bei Fehler: alle Änderungen rückgängig machen
-        conn.rollback()
-        raise e
-    finally:
-        cursor.close()
-        conn.close()
-
-
-def material_herunterladen(material_id, ziel_ordner=None):
-    if ziel_ordner is None:
-        ziel_ordner = DOWNLOAD_ORDNER
-
-    # Ordner anlegen falls nicht vorhanden
-    if not os.path.exists(ziel_ordner):
-        os.makedirs(ziel_ordner)
-
-    conn = verbinden()
-    cursor = conn.cursor(dictionary=True)
-
     cursor.execute(
-        "SELECT dateiname, speicherstrategie, blob_inhalt, dateipfad "
-        "FROM vw_material_aktuell WHERE material_id = %s",
-        (material_id,)
+        "SELECT b.benutzer_id, b.anzeigename, b.email, r.name AS rolle "
+        "FROM benutzer b "
+        "INNER JOIN rollen r ON r.rollen_id = b.rollen_id "
+        "WHERE b.anzeigename = %s AND b.passwort = %s",
+        (benutzername, passwort)
     )
-    row = cursor.fetchone()
+    result = cursor.fetchone()
     cursor.close()
     conn.close()
-
-    if row is None:
-        raise Exception("Material nicht gefunden (ID: " + str(material_id) + ")")
-
-    ziel_datei = os.path.join(ziel_ordner, row["dateiname"])
-
-    if row["speicherstrategie"] == "DB_BLOB":
-        # BLOB aus der DB als Datei schreiben
-        # bytes() nötig weil MySQL Connector bytearray zurückgibt
-        with open(ziel_datei, "wb") as f:
-            f.write(bytes(row["blob_inhalt"]))
-    else:
-        # Datei aus dem Dateisystem kopieren
-        shutil.copy2(row["dateipfad"], ziel_datei)
-
-    return ziel_datei
+    return result  # None wenn nicht gefunden
 
 
-def kommentare_laden(material_id):
-    conn = verbinden()
-    cursor = conn.cursor(dictionary=True)
-
-    # JOIN mit benutzer um den Namen des Autors zu bekommen
-    cursor.execute(
-        "SELECT k.kommentar_id, b.anzeigename AS autor, "
-        "k.kommentartext, k.erstellt_am, k.geaendert_am "
-        "FROM kommentare k "
-        "INNER JOIN benutzer b ON b.benutzer_id = k.autor_id "
-        "WHERE k.material_id = %s "
-        "ORDER BY k.erstellt_am",
-        (material_id,)
-    )
-    result = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return result
-
-
-def kommentar_speichern(material_id, autor_id, text):
-    conn = verbinden()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "INSERT INTO kommentare (material_id, autor_id, kommentartext, erstellt_am, geaendert_am) "
-        "VALUES (%s, %s, %s, NOW(), NOW())",
-        (material_id, autor_id, text)
-    )
-    conn.commit()
-
-    neue_id = cursor.lastrowid
-    cursor.close()
-    conn.close()
-    return neue_id
-
+# -----------------------------------------------------------------------
+# Benutzer
+# -----------------------------------------------------------------------
 
 def benutzer_laden():
     conn = verbinden()
     cursor = conn.cursor(dictionary=True)
-
-    # JOIN mit rollen Tabelle um den Rollennamen zu bekommen
     cursor.execute(
-        "SELECT b.benutzer_id, b.anzeigename, b.email, r.name AS rolle "
+        "SELECT b.benutzer_id, b.anzeigename, b.email, r.name AS rolle, b.erstellt_am "
         "FROM benutzer b "
         "INNER JOIN rollen r ON r.rollen_id = b.rollen_id "
         "ORDER BY b.anzeigename"
@@ -274,6 +85,42 @@ def benutzer_laden():
     conn.close()
     return result
 
+
+def benutzer_anlegen(anzeigename, email, passwort, rollen_id):
+    conn = verbinden()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO benutzer (rollen_id, anzeigename, email, passwort) "
+        "VALUES (%s, %s, %s, %s)",
+        (rollen_id, anzeigename, email, passwort)
+    )
+    conn.commit()
+    neue_id = cursor.lastrowid
+    cursor.close()
+    conn.close()
+    return neue_id
+
+
+def email_gueltig(email):
+    # Einfache E-Mail-Validierung mit regulärem Ausdruck
+    # Quelle: https://stackoverflow.com/questions/8022530
+    muster = r"^[^@]+@[^@]+\.[^@]+$"
+    return bool(re.match(muster, email))
+
+
+def rollen_laden():
+    conn = verbinden()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT rollen_id, name FROM rollen ORDER BY rollen_id")
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
+
+
+# -----------------------------------------------------------------------
+# Themengebiete
+# -----------------------------------------------------------------------
 
 def themen_laden():
     conn = verbinden()
@@ -297,6 +144,211 @@ def thema_anlegen(name, beschreibung=""):
     cursor.close()
     conn.close()
     return neue_id
+
+
+# -----------------------------------------------------------------------
+# Materialien
+# -----------------------------------------------------------------------
+
+def materialien_laden(titel=None, dateityp=None, thema_id=None, autor_id=None):
+    conn = verbinden()
+    cursor = conn.cursor(dictionary=True)
+
+    # WHERE 1=1 damit man einfach AND anhängen kann
+    sql = """
+        SELECT material_id, titel, dateiname, dateityp,
+               themengebiet_name  AS themengebiet,
+               material_autor_name AS autor,
+               material_autor_id,
+               versionsnummer     AS version,
+               dateigroesse_bytes,
+               speicherstrategie,
+               material_erstellt_am  AS erstellt_am,
+               version_autor_name AS zuletzt_geaendert_von
+        FROM vw_material_aktuell
+        WHERE 1=1
+    """
+    params = []
+
+    if titel:
+        sql += " AND (titel LIKE %s OR dateiname LIKE %s)"
+        params.append("%" + titel + "%")
+        params.append("%" + titel + "%")
+
+    if dateityp:
+        sql += " AND dateityp LIKE %s"
+        params.append("%" + dateityp + "%")
+
+    if thema_id:
+        sql += " AND themengebiet_id = %s"
+        params.append(thema_id)
+
+    if autor_id:
+        sql += " AND material_autor_id = %s"
+        params.append(autor_id)
+
+    sql += " ORDER BY titel"
+
+    cursor.execute(sql, params)
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
+
+
+def material_hochladen(quelldatei, autor_id, titel=None, thema_id=None, material_id=None):
+    if not os.path.exists(quelldatei):
+        raise Exception("Datei nicht gefunden: " + quelldatei)
+
+    dateiname = os.path.basename(quelldatei)
+    _, ext = os.path.splitext(dateiname)
+    dateityp = ext.lower() if ext else "unbekannt"
+    groesse = os.path.getsize(quelldatei)
+
+    # Datei in den Storage-Ordner kopieren
+    if not os.path.exists(STORAGE_ORDNER):
+        os.makedirs(STORAGE_ORDNER)
+
+    ziel_pfad = os.path.join(STORAGE_ORDNER, dateiname)
+    shutil.copy2(quelldatei, ziel_pfad)
+
+    conn = verbinden()
+    cursor = conn.cursor(dictionary=True)
+
+    try:
+        conn.start_transaction()
+
+        if material_id is None:
+            # Neues Material anlegen
+            cursor.execute(
+                "INSERT INTO materialien (titel, themengebiet_id, erstellt_von, erstellt_am, geaendert_am) "
+                "VALUES (%s, %s, %s, NOW(), NOW())",
+                (titel, thema_id, autor_id)
+            )
+            material_id = cursor.lastrowid
+
+        # Nächste Versionsnummer ermitteln
+        cursor.execute(
+            "SELECT COALESCE(MAX(versionsnummer), 0) + 1 AS naechste "
+            "FROM material_versionen WHERE material_id = %s",
+            (material_id,)
+        )
+        naechste_version = cursor.fetchone()["naechste"]
+
+        # Version speichern - alle Dateien gehen ins Dateisystem
+        cursor.execute(
+            "INSERT INTO material_versionen "
+            "(material_id, versionsnummer, dateiname, dateityp, dateigroesse_bytes, "
+            "speicherstrategie, dateipfad, erstellt_von, erstellt_am) "
+            "VALUES (%s, %s, %s, %s, %s, 'DATEISYSTEM', %s, %s, NOW())",
+            (material_id, naechste_version, dateiname, dateityp, groesse, ziel_pfad, autor_id)
+        )
+        version_id = cursor.lastrowid
+
+        # Zeiger auf aktuelle Version aktualisieren
+        cursor.execute(
+            "UPDATE materialien SET aktuelle_version_id = %s, geaendert_am = NOW() "
+            "WHERE material_id = %s",
+            (version_id, material_id)
+        )
+
+        conn.commit()
+        return {
+            "material_id": material_id,
+            "version": naechste_version,
+            "pfad": ziel_pfad
+        }
+
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def material_herunterladen(material_id, ziel_ordner=None):
+    if ziel_ordner is None:
+        ziel_ordner = DOWNLOAD_ORDNER
+
+    if not os.path.exists(ziel_ordner):
+        os.makedirs(ziel_ordner)
+
+    conn = verbinden()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT dateiname, dateipfad FROM vw_material_aktuell WHERE material_id = %s",
+        (material_id,)
+    )
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if row is None:
+        raise Exception("Material nicht gefunden (ID: " + str(material_id) + ")")
+
+    ziel_datei = os.path.join(ziel_ordner, row["dateiname"])
+    shutil.copy2(row["dateipfad"], ziel_datei)
+    return ziel_datei
+
+
+# -----------------------------------------------------------------------
+# Kommentare
+# -----------------------------------------------------------------------
+
+def kommentare_laden(material_id):
+    conn = verbinden()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT k.kommentar_id, b.anzeigename AS autor, b.benutzer_id AS autor_id, "
+        "k.kommentartext, k.erstellt_am, k.geaendert_am "
+        "FROM kommentare k "
+        "INNER JOIN benutzer b ON b.benutzer_id = k.autor_id "
+        "WHERE k.material_id = %s "
+        "ORDER BY k.erstellt_am",
+        (material_id,)
+    )
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
+
+
+def kommentar_speichern(material_id, autor_id, text):
+    conn = verbinden()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO kommentare (material_id, autor_id, kommentartext, erstellt_am, geaendert_am) "
+        "VALUES (%s, %s, %s, NOW(), NOW())",
+        (material_id, autor_id, text)
+    )
+    conn.commit()
+    neue_id = cursor.lastrowid
+    cursor.close()
+    conn.close()
+    return neue_id
+
+
+def kommentar_loeschen(kommentar_id):
+    conn = verbinden()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM kommentare WHERE kommentar_id = %s", (kommentar_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def kommentar_bearbeiten(kommentar_id, neuer_text):
+    conn = verbinden()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE kommentare SET kommentartext = %s, geaendert_am = NOW() "
+        "WHERE kommentar_id = %s",
+        (neuer_text, kommentar_id)
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 
 # -----------------------------------------------------------------------
@@ -400,12 +452,10 @@ def standardabfrage_ausfuehren(index):
         raise Exception("Ungültige Abfragenummer")
 
     abfrage = STANDARDABFRAGEN[index]
-
     conn = verbinden()
     cursor = conn.cursor(dictionary=True)
     cursor.execute(abfrage["sql"])
     result = cursor.fetchall()
     cursor.close()
     conn.close()
-
     return abfrage["titel"], abfrage["beschreibung"], result
