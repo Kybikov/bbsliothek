@@ -123,15 +123,24 @@ python main.py
   Erst kam die DeprecationWarning (`ft.app` veraltet), nach der Änderung auf `ft.run(target=main)`
   kam ein TypeError. Die korrekte Schreibweise ist `ft.run(main)` ohne Keyword.
 
-- **`TypeError: FilePicker.__init__() got an unexpected keyword argument 'on_result'`** –
-  Laut Flet-Dokumentation und Tutorials wird `ft.FilePicker(on_result=handler)` verwendet.
-  In Version ≥ 0.80 akzeptiert der Konstruktor `on_result` nicht mehr als Argument.
-  Lösung: erst `ft.FilePicker()` erstellen, dann separat `file_picker.on_result = handler` setzen.
+- **`TypeError: FilePicker.__init__() got an unexpected keyword argument 'on_result'`** dann
+  **`Unknown control: FilePicker`** –
+  Zuerst hat der FilePicker-Konstruktor `on_result` nicht akzeptiert (TypeError).
+  Nach der Korrektur kam der nächste Fehler: FilePicker wird in Flet ≥ 0.80 als
+  "Unknown control" abgelehnt und kann nicht mehr zu `page.overlay` hinzugefügt werden.
+  Da die FilePicker-API in dieser Version komplett gebrochen war, wurde die Funktion
+  durch ein einfaches Textfeld für den Dateipfad ersetzt — der Benutzer kopiert den
+  Pfad manuell aus dem Explorer (Rechtsklick → "Als Pfad kopieren").
 
 - **`DeprecationWarning: ElevatedButton is deprecated since version 0.80.0`** –
   `ft.ElevatedButton` wurde durch `ft.FilledButton` ersetzt.
   Die App lief noch, aber in der Konsole erschienen viele Warnungen.
   Alle `ElevatedButton` wurden durch `FilledButton` ersetzt.
+
+- **`AttributeError: 'Page' object has no attribute 'window_width'`** –
+  In alten Flet-Tutorials wird `page.window_width = 1200` gesetzt.
+  Ab Version 0.80 wurde das Fenster-Objekt ausgelagert:
+  `page.window_width` → `page.window.width`, `page.window_height` → `page.window.height`.
 
 - `mysql.connector.errors.InterfaceError` – Cursor nicht geschlossen bevor eine neue
   Abfrage gestartet wurde; behoben durch `finally: cur.close(); conn.close()`

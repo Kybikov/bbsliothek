@@ -15,8 +15,10 @@ def main(page: ft.Page):
     # Quelle: https://flet.dev/docs/controls/page/
     page.title = "BBSliothek – Lernmaterialverwaltung"
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.window_width = 1200
-    page.window_height = 800
+    # page.window_width hat in 0.80 nicht mehr funktioniert
+    # ab 0.80 heißt es page.window.width
+    page.window.width = 1200
+    page.window.height = 800
     page.padding = 0
     page.bgcolor = "#f8f9fa"
 
@@ -148,10 +150,14 @@ def main(page: ft.Page):
     # Seite: Material hochladen
     # ==================================================================
     def zeige_upload(e=None):
-        # Dictionary um den Dateipfad zu speichern
-        # (normale Variable würde in der Closure nicht funktionieren)
-        datei_info = {"pfad": None}
-        dateiname_text = ft.Text("Keine Datei ausgewählt", italic=True, color="grey")
+        # Pfad-Feld statt FilePicker
+        # FilePicker hat in Version 0.80 nicht mehr funktioniert (Unknown control),
+        # deshalb wird der Pfad jetzt manuell eingegeben
+        pfad_feld = ft.TextField(
+            label="Pfad zur Datei",
+            width=500,
+            hint_text=r"z.B. C:\Users\...\datei.pdf",
+        )
 
         titel_feld = ft.TextField(label="Titel des Materials", width=420)
 
@@ -184,26 +190,10 @@ def main(page: ft.Page):
         )
         status_text = ft.Text("", size=13)
 
-        # FilePicker muss zu page.overlay hinzugefügt werden
-        # Quelle: https://flet.dev/docs/controls/filepicker/
-        # Hinweis: on_result kann nicht im Konstruktor übergeben werden (TypeError),
-        # sondern muss nach der Erstellung als Eigenschaft gesetzt werden
-        def datei_ausgewaehlt(e: ft.FilePickerResultEvent):
-            if e.files:
-                datei_info["pfad"] = e.files[0].path
-                dateiname_text.value = e.files[0].name
-                dateiname_text.color = ft.Colors.BLUE_700
-                page.update()
-
-        file_picker = ft.FilePicker()
-        file_picker.on_result = datei_ausgewaehlt
-        page.overlay.append(file_picker)
-        page.update()
-
         def hochladen_geklickt(e):
             # Eingaben überprüfen bevor Upload startet
-            if datei_info["pfad"] is None:
-                status_text.value = "Bitte zuerst eine Datei auswählen!"
+            if pfad_feld.value.strip() == "":
+                status_text.value = "Bitte einen Dateipfad eingeben!"
                 status_text.color = "red"
                 page.update()
                 return
@@ -237,7 +227,7 @@ def main(page: ft.Page):
                         return
 
                     result = db.material_hochladen(
-                        quelldatei=datei_info["pfad"],
+                        quelldatei=pfad_feld.value.strip(),
                         autor_id=autor_id,
                         titel=titel_feld.value.strip(),
                         thema_id=int(thema_dropdown.value),
@@ -245,7 +235,7 @@ def main(page: ft.Page):
                 else:
                     # Neue Version eines bestehenden Materials hochladen
                     result = db.material_hochladen(
-                        quelldatei=datei_info["pfad"],
+                        quelldatei=pfad_feld.value.strip(),
                         autor_id=autor_id,
                         material_id=mat_id,
                     )
@@ -271,15 +261,13 @@ def main(page: ft.Page):
                 content=ft.Container(
                     padding=24,
                     content=ft.Column([
-                        ft.Text("1. Datei auswählen", size=15, weight=ft.FontWeight.W_600),
-                        ft.Row([
-                            ft.FilledButton(
-                                "Datei auswählen ...",
-                                icon=ft.Icons.ATTACH_FILE,
-                                on_click=lambda e: file_picker.pick_files(),
-                            ),
-                            dateiname_text,
-                        ]),
+                        ft.Text("1. Pfad zur Datei eingeben", size=15, weight=ft.FontWeight.W_600),
+                        pfad_feld,
+                        ft.Text(
+                            "Tipp: Datei in Explorer öffnen → Rechtsklick → 'Als Pfad kopieren'",
+                            size=12,
+                            color="grey",
+                        ),
                         ft.Divider(height=20),
                         ft.Text("2. Informationen eingeben", size=15, weight=ft.FontWeight.W_600),
                         titel_feld,
@@ -295,10 +283,6 @@ def main(page: ft.Page):
                             "Hochladen",
                             icon=ft.Icons.CLOUD_UPLOAD,
                             on_click=hochladen_geklickt,
-                            style=ft.ButtonStyle(
-                                bgcolor=ft.Colors.BLUE_700,
-                                color=ft.Colors.WHITE,
-                            ),
                         ),
                         status_text,
                     ], spacing=14),
