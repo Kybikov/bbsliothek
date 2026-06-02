@@ -1,177 +1,186 @@
-# Datenbank-Modul für BBSliothek
-# Quelle MySQL Connector: https://dev.mysql.com/doc/connector-python/en/
-
 import mysql.connector
-from mysql.connector import Error
 import os
 import shutil
 import re
 from dotenv import load_dotenv
 
-# .env Datei laden (falls vorhanden)
-# Quelle: https://pypi.org/project/python-dotenv/
 load_dotenv()
 
-# Verbindungsdaten aus Umgebungsvariablen lesen
-#
-# Version 1 (hardcoded, nur lokal):
-#   DB_HOST = "127.0.0.1"
-#   DB_USER = "root"
-#   DB_PASSWORD = ""
-#
-# Version 2 (Umgebungsvariablen, lokal via .env):
-#   DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
-#
-# Version 3 (aktuell - lokal .env ODER Coolify Environment Variables):
-#   Lokal:   .env mit DB_HOST=127.0.0.1
-#   Server:  Coolify setzt DB_HOST=xj7evbux1foptqdig1zg2a0z
-#   App/APK: DB_HOST=84.46.249.194 (öffentliche IP, Port 3306 muss offen sein)
-#
-DB_HOST     = os.getenv("DB_HOST",     "127.0.0.1")
-DB_PORT     = int(os.getenv("DB_PORT", "3306"))
-DB_NAME     = os.getenv("DB_NAME",     "bbsliothek")
-DB_USER     = os.getenv("DB_USER",     "root")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+DB_HOST     = os.getenv("DB_HOST")
+DB_PORT     = int(os.getenv("DB_PORT"))
+DB_NAME     = os.getenv("DB_NAME")
+DB_USER     = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
 
-STORAGE_ORDNER  = os.getenv("STORAGE_ROOT",  "storage/materials")
-DOWNLOAD_ORDNER = os.getenv("DOWNLOAD_ROOT", "downloads")
+STORAGE_ORDNER  = os.getenv("STORAGE_ROOT")
+DOWNLOAD_ORDNER = os.getenv("DOWNLOAD_ROOT")
 
 
+#https://stackoverflow.com/questions/372885
 def verbinden():
-    # Verbindung zur MySQL-Datenbank herstellen
-    try:
-        conn = mysql.connector.connect(
-            host=DB_HOST,
-            port=DB_PORT,
-            database=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD
-        )
-        if conn.is_connected():
-            return conn
-    except Error as e:
-        raise Exception("Verbindung zur Datenbank fehlgeschlagen: " + str(e))
+    db = mysql.connector.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME
+    )
+    return db
 
 
-# -----------------------------------------------------------------------
-# Login
-# -----------------------------------------------------------------------
 
+#def anfrage(sql, frage):
+#    db = verbinden()
+#    cur = db.cursor(dictionary=True)
+#    cur.execute(frage)
+#    result = cur.fetchall()
+#    db.close()
+#    return result
+
+
+
+# fetchall() - print all the first cell of all the rows
+# fetchone() - print first cell of all the rows
+
+
+#login
 def einloggen(benutzername, passwort):
-    # Benutzer anhand von Name und Passwort suchen
-    # Passwort wird als Klartext verglichen (vereinfacht für Schulprojekt)
-    conn = verbinden()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute(
-        "SELECT b.benutzer_id, b.anzeigename, b.email, r.name AS rolle "
-        "FROM benutzer b "
-        "INNER JOIN rollen r ON r.rollen_id = b.rollen_id "
-        "WHERE b.anzeigename = %s AND b.passwort = %s",
-        (benutzername, passwort)
-    )
-    result = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    return result  # None wenn nicht gefunden
+    db = verbinden()
+    cur = db.cursor(dictionary=True)
+    cur.execute("""
+        SELECT b.benutzer_id, b.benutzername, b.vorname, b.nachname,
+               CONCAT(b.vorname, ' ', b.nachname) AS anzeigename,
+               b.email, r.name AS rolle
+        FROM benutzer b
+        INNER JOIN rollen r ON r.rollen_id = b.rollen_id
+        WHERE b.benutzername = %s AND b.passwort = %s
+    """, (benutzername, passwort))
+    row = cur.fetchone()
+    db.close()
+    return row  #none wenn gibt es kein
 
 
-# -----------------------------------------------------------------------
-# Benutzer
-# -----------------------------------------------------------------------
-
-def benutzer_laden():
-    conn = verbinden()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute(
-        "SELECT b.benutzer_id, b.anzeigename, b.email, r.name AS rolle, b.erstellt_am "
-        "FROM benutzer b "
-        "INNER JOIN rollen r ON r.rollen_id = b.rollen_id "
-        "ORDER BY b.anzeigename"
-    )
-    result = cursor.fetchall()
-    cursor.close()
-    conn.close()
+#benutzer
+def benutzer_mit_anzahl():
+    # Join + Aggregation: Benutzer mit Anzahl hochgeladener Materialien
+    db = verbinden()
+    cur = db.cursor(dictionary=True)
+    cur.execute("""
+        SELECT CONCAT(b.vorname, ' ', b.nachname) AS name,
+               r.name AS rolle,
+               COUNT(m.material_id) AS anzahl_materialien
+        FROM benutzer b
+        INNER JOIN rollen r ON r.rollen_id = b.rollen_id
+        LEFT JOIN materialien m ON m.erstellt_von = b.benutzer_id
+        GROUP BY b.benutzer_id, b.vorname, b.nachname, r.name
+        ORDER BY b.nachname
+    """)
+    result = cur.fetchall()
+    db.close()
     return result
 
 
-def benutzer_anlegen(anzeigename, email, passwort, rollen_id):
-    conn = verbinden()
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO benutzer (rollen_id, anzeigename, email, passwort) "
-        "VALUES (%s, %s, %s, %s)",
-        (rollen_id, anzeigename, email, passwort)
-    )
-    conn.commit()
-    neue_id = cursor.lastrowid
-    cursor.close()
-    conn.close()
+def benutzer_laden():
+    db = verbinden()
+    cur = db.cursor(dictionary=True)
+    cur.execute("""
+        SELECT b.benutzer_id, b.vorname, b.nachname,
+               CONCAT(b.vorname, ' ', b.nachname) AS anzeigename,
+               b.email, r.name AS rolle, b.erstellt_am
+        FROM benutzer b
+        INNER JOIN rollen r ON r.rollen_id = b.rollen_id
+        ORDER BY b.nachname
+    """)
+    result = cur.fetchall()
+    db.close()
+    return result
+
+
+def benutzer_anlegen(vorname, nachname, email, passwort, rollen_id):
+    # Benutzername automatisch generieren: erster Buchstabe Vorname + "." + Nachname
+    benutzername = vorname[0].lower() + "." + nachname.lower()
+    db = verbinden()
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO benutzer (rollen_id, benutzername, vorname, nachname, email, passwort)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """, (rollen_id, benutzername, vorname, nachname, email, passwort))
+    db.commit()
+    neue_id = cur.lastrowid
+    db.close()
     return neue_id
 
 
 def email_gueltig(email):
-    # Einfache E-Mail-Validierung mit regulärem Ausdruck
+    # Einfache E-Mail-Validierung
     # Quelle: https://stackoverflow.com/questions/8022530
     muster = r"^[^@]+@[^@]+\.[^@]+$"
     return bool(re.match(muster, email))
 
 
 def rollen_laden():
-    conn = verbinden()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT rollen_id, name FROM rollen ORDER BY rollen_id")
-    result = cursor.fetchall()
-    cursor.close()
-    conn.close()
+    db = verbinden()
+    cur = db.cursor(dictionary=True)
+    cur.execute("SELECT rollen_id, name FROM rollen ORDER BY rollen_id")
+    result = cur.fetchall()
+    db.close()
     return result
 
 
-# -----------------------------------------------------------------------
-# Themengebiete
-# -----------------------------------------------------------------------
+#themengebiete
+def themen_mit_anzahl():
+    # Aggregation: Themen mit Anzahl der Materialien
+    db = verbinden()
+    cur = db.cursor(dictionary=True)
+    cur.execute("""
+        SELECT tg.themengebiet_id, tg.name,
+               COUNT(m.material_id) AS anzahl_materialien
+        FROM themengebiete tg
+        LEFT JOIN materialien m ON m.themengebiet_id = tg.themengebiet_id
+        GROUP BY tg.themengebiet_id, tg.name
+        ORDER BY tg.name
+    """)
+    result = cur.fetchall()
+    db.close()
+    return result
+
 
 def themen_laden():
-    conn = verbinden()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT themengebiet_id, name, beschreibung FROM themengebiete ORDER BY name")
-    result = cursor.fetchall()
-    cursor.close()
-    conn.close()
+    db = verbinden()
+    cur = db.cursor(dictionary=True)
+    cur.execute("SELECT themengebiet_id, name, beschreibung FROM themengebiete ORDER BY name")
+    result = cur.fetchall()
+    db.close()
     return result
 
 
 def thema_anlegen(name, beschreibung=""):
-    conn = verbinden()
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO themengebiete (name, beschreibung) VALUES (%s, %s)",
-        (name, beschreibung)
-    )
-    conn.commit()
-    neue_id = cursor.lastrowid
-    cursor.close()
-    conn.close()
+    db = verbinden()
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO themengebiete (name, beschreibung)
+        VALUES (%s, %s)
+    """, (name, beschreibung))
+    db.commit()
+    neue_id = cur.lastrowid
+    db.close()
     return neue_id
 
 
-# -----------------------------------------------------------------------
-# Materialien
-# -----------------------------------------------------------------------
-
+#materialien
 def materialien_laden(titel=None, dateityp=None, thema_id=None, autor_id=None):
-    conn = verbinden()
-    cursor = conn.cursor(dictionary=True)
+    db = verbinden()
+    cur = db.cursor(dictionary=True)
 
-    # WHERE 1=1 damit man einfach AND anhängen kann
     sql = """
         SELECT material_id, titel, dateiname, dateityp,
-               themengebiet_name  AS themengebiet,
+               themengebiet_name AS themengebiet,
                material_autor_name AS autor,
                material_autor_id,
-               versionsnummer     AS version,
+               versionsnummer AS version,
                dateigroesse_bytes,
                speicherstrategie,
-               material_erstellt_am  AS erstellt_am,
+               material_erstellt_am AS erstellt_am,
                version_autor_name AS zuletzt_geaendert_von
         FROM vw_material_aktuell
         WHERE 1=1
@@ -197,114 +206,116 @@ def materialien_laden(titel=None, dateityp=None, thema_id=None, autor_id=None):
 
     sql += " ORDER BY titel"
 
-    cursor.execute(sql, params)
-    result = cursor.fetchall()
-    cursor.close()
-    conn.close()
+    cur.execute(sql, params)
+    result = cur.fetchall()
+    db.close()
     return result
 
 
 def material_hochladen(quelldatei, autor_id, titel=None, thema_id=None, material_id=None):
-    if not os.path.exists(quelldatei):
+    if os.path.exists(quelldatei) == False:
         raise Exception("Datei nicht gefunden: " + quelldatei)
 
     dateiname = os.path.basename(quelldatei)
-    _, ext = os.path.splitext(dateiname)
-    dateityp = ext.lower() if ext else "unbekannt"
+    dateityp = os.path.splitext(dateiname)[1].lower()
     groesse = os.path.getsize(quelldatei)
 
-    # Speicherstrategie entscheiden: unter 1 MB -> BLOB, sonst -> Dateisystem
-    BLOB_GRENZE = 1_000_000  # 1 MB in Bytes
-
-    if groesse < BLOB_GRENZE:
-        # Kleine Datei: direkt als BLOB in die Datenbank speichern
+    # Speicherstrategie: unter 1 MB -> BLOB, sonst -> Dateisystem
+    if groesse < 1000000:
         strategie = "DB_BLOB"
         with open(quelldatei, "rb") as f:
             blob_inhalt = f.read()
         ziel_pfad = None
     else:
-        # Große Datei: ins Dateisystem kopieren, nur Pfad in DB speichern
         strategie = "DATEISYSTEM"
         blob_inhalt = None
-        if not os.path.exists(STORAGE_ORDNER):
+        if os.path.exists(STORAGE_ORDNER) == False:
             os.makedirs(STORAGE_ORDNER)
         ziel_pfad = os.path.join(STORAGE_ORDNER, dateiname)
         shutil.copy2(quelldatei, ziel_pfad)
 
-    conn = verbinden()
-    cursor = conn.cursor(dictionary=True)
+    db = verbinden()
+    cur = db.cursor(dictionary=True)
 
-    try:
-        if material_id is None:
-            # Neues Material anlegen
-            cursor.execute(
-                "INSERT INTO materialien (titel, themengebiet_id, erstellt_von, erstellt_am, geaendert_am) "
-                "VALUES (%s, %s, %s, NOW(), NOW())",
-                (titel, thema_id, autor_id)
-            )
-            material_id = cursor.lastrowid
+    if material_id == None:
+        # Neues Material anlegen
+        cur.execute("""
+            INSERT INTO materialien (titel, themengebiet_id, erstellt_von, erstellt_am, geaendert_am)
+            VALUES (%s, %s, %s, NOW(), NOW())
+        """, (titel, thema_id, autor_id))
+        material_id = cur.lastrowid
 
-        # Nächste Versionsnummer ermitteln
-        cursor.execute(
-            "SELECT COALESCE(MAX(versionsnummer), 0) + 1 AS naechste "
-            "FROM material_versionen WHERE material_id = %s",
-            (material_id,)
-        )
-        naechste_version = cursor.fetchone()["naechste"]
+    # Nächste Versionsnummer ermitteln
+    cur.execute("""
+        SELECT MAX(versionsnummer) AS max_version
+        FROM material_versionen
+        WHERE material_id = %s
+    """, (material_id,))
+    row = cur.fetchone()
+    if row["max_version"] == None:
+        naechste_version = 1
+    else:
+        naechste_version = row["max_version"] + 1
 
-        # Version speichern
-        cursor.execute(
-            "INSERT INTO material_versionen "
-            "(material_id, versionsnummer, dateiname, dateityp, dateigroesse_bytes, "
-            "speicherstrategie, blob_inhalt, dateipfad, erstellt_von, erstellt_am) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())",
-            (material_id, naechste_version, dateiname, dateityp, groesse,
-             strategie, blob_inhalt, ziel_pfad, autor_id)
-        )
-        version_id = cursor.lastrowid
+    # Version speichern
+    cur.execute("""
+        INSERT INTO material_versionen
+        (material_id, versionsnummer, dateiname, dateityp, dateigroesse_bytes,
+         speicherstrategie, blob_inhalt, dateipfad, erstellt_von, erstellt_am)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+    """, (material_id, naechste_version, dateiname, dateityp, groesse,
+          strategie, blob_inhalt, ziel_pfad, autor_id))
+    version_id = cur.lastrowid
 
-        # Zeiger auf aktuelle Version aktualisieren
-        cursor.execute(
-            "UPDATE materialien SET aktuelle_version_id = %s, geaendert_am = NOW() "
-            "WHERE material_id = %s",
-            (version_id, material_id)
-        )
+    # Zeiger auf aktuelle Version aktualisieren
+    cur.execute("""
+        UPDATE materialien SET aktuelle_version_id = %s, geaendert_am = NOW()
+        WHERE material_id = %s
+    """, (version_id, material_id))
 
-        conn.commit()
-        return {
-            "material_id": material_id,
-            "version": naechste_version,
-            "strategie": strategie,
-            "pfad": ziel_pfad
-        }
+    db.commit()
+    db.close()
+    return {
+        "material_id": material_id,
+        "version": naechste_version,
+        "strategie": strategie,
+        "pfad": ziel_pfad
+    }
 
-    except Exception as e:
-        conn.rollback()
-        raise e
-    finally:
-        cursor.close()
-        conn.close()
+
+def material_loeschen(material_id):
+    db = verbinden()
+    cur = db.cursor()
+    # Kommentare löschen
+    cur.execute("DELETE FROM kommentare WHERE material_id = %s", (material_id,))
+    # aktuelle_version_id auf NULL setzen - sonst Foreign Key Fehler
+    cur.execute("UPDATE materialien SET aktuelle_version_id = NULL WHERE material_id = %s", (material_id,))
+    # Versionen löschen
+    cur.execute("DELETE FROM material_versionen WHERE material_id = %s", (material_id,))
+    # Material löschen
+    cur.execute("DELETE FROM materialien WHERE material_id = %s", (material_id,))
+    db.commit()
+    db.close()
 
 
 def material_herunterladen(material_id, ziel_ordner=None):
-    if ziel_ordner is None:
+    if ziel_ordner == None:
         ziel_ordner = DOWNLOAD_ORDNER
 
-    if not os.path.exists(ziel_ordner):
+    if os.path.exists(ziel_ordner) == False:
         os.makedirs(ziel_ordner)
 
-    conn = verbinden()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute(
-        "SELECT dateiname, speicherstrategie, blob_inhalt, dateipfad "
-        "FROM vw_material_aktuell WHERE material_id = %s",
-        (material_id,)
-    )
-    row = cursor.fetchone()
-    cursor.close()
-    conn.close()
+    db = verbinden()
+    cur = db.cursor(dictionary=True)
+    cur.execute("""
+        SELECT dateiname, speicherstrategie, blob_inhalt, dateipfad
+        FROM vw_material_aktuell
+        WHERE material_id = %s
+    """, (material_id,))
+    row = cur.fetchone()
+    db.close()
 
-    if row is None:
+    if row == None:
         raise Exception("Material nicht gefunden (ID: " + str(material_id) + ")")
 
     ziel_datei = os.path.join(ziel_ordner, row["dateiname"])
@@ -320,170 +331,68 @@ def material_herunterladen(material_id, ziel_ordner=None):
     return ziel_datei
 
 
-# -----------------------------------------------------------------------
-# Kommentare
-# -----------------------------------------------------------------------
+#kommentare
+def materialien_mit_kommentaranzahl():
+    # Aggregation: Materialien mit Anzahl der Kommentare
+    db = verbinden()
+    cur = db.cursor(dictionary=True)
+    cur.execute("""
+        SELECT m.material_id, m.titel,
+               COUNT(k.kommentar_id) AS anzahl_kommentare
+        FROM materialien m
+        LEFT JOIN kommentare k ON k.material_id = m.material_id
+        GROUP BY m.material_id, m.titel
+        ORDER BY m.titel
+    """)
+    result = cur.fetchall()
+    db.close()
+    return result
+
 
 def kommentare_laden(material_id):
-    conn = verbinden()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute(
-        "SELECT k.kommentar_id, b.anzeigename AS autor, b.benutzer_id AS autor_id, "
-        "k.kommentartext, k.erstellt_am, k.geaendert_am "
-        "FROM kommentare k "
-        "INNER JOIN benutzer b ON b.benutzer_id = k.autor_id "
-        "WHERE k.material_id = %s "
-        "ORDER BY k.erstellt_am",
-        (material_id,)
-    )
-    result = cursor.fetchall()
-    cursor.close()
-    conn.close()
+    db = verbinden()
+    cur = db.cursor(dictionary=True)
+    cur.execute("""
+        SELECT k.kommentar_id, CONCAT(b.vorname, ' ', b.nachname) AS autor,
+               b.benutzer_id AS autor_id, k.kommentartext, k.erstellt_am, k.geaendert_am
+        FROM kommentare k
+        INNER JOIN benutzer b ON b.benutzer_id = k.autor_id
+        WHERE k.material_id = %s
+        ORDER BY k.erstellt_am
+    """, (material_id,))
+    result = cur.fetchall()
+    db.close()
     return result
 
 
 def kommentar_speichern(material_id, autor_id, text):
-    conn = verbinden()
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO kommentare (material_id, autor_id, kommentartext, erstellt_am, geaendert_am) "
-        "VALUES (%s, %s, %s, NOW(), NOW())",
-        (material_id, autor_id, text)
-    )
-    conn.commit()
-    neue_id = cursor.lastrowid
-    cursor.close()
-    conn.close()
+    db = verbinden()
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO kommentare (material_id, autor_id, kommentartext, erstellt_am, geaendert_am)
+        VALUES (%s, %s, %s, NOW(), NOW())
+    """, (material_id, autor_id, text))
+    db.commit()
+    neue_id = cur.lastrowid
+    db.close()
     return neue_id
 
 
 def kommentar_loeschen(kommentar_id):
-    conn = verbinden()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM kommentare WHERE kommentar_id = %s", (kommentar_id,))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    db = verbinden()
+    cur = db.cursor()
+    cur.execute("DELETE FROM kommentare WHERE kommentar_id = %s", (kommentar_id,))
+    db.commit()
+    db.close()
 
 
 def kommentar_bearbeiten(kommentar_id, neuer_text):
-    conn = verbinden()
-    cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE kommentare SET kommentartext = %s, geaendert_am = NOW() "
-        "WHERE kommentar_id = %s",
-        (neuer_text, kommentar_id)
-    )
-    conn.commit()
-    cursor.close()
-    conn.close()
+    db = verbinden()
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE kommentare SET kommentartext = %s, geaendert_am = NOW()
+        WHERE kommentar_id = %s
+    """, (neuer_text, kommentar_id))
+    db.commit()
+    db.close()
 
-
-# -----------------------------------------------------------------------
-# 7 Standardabfragen laut Aufgabenstellung
-# 2x Aggregation, 2x Inner Join, 1x Join+Aggregation, 2x mehrere Joins
-# -----------------------------------------------------------------------
-STANDARDABFRAGEN = [
-    {
-        "titel": "Materialien pro Themengebiet (Aggregation)",
-        "beschreibung": "Zählt wie viele Materialien in jedem Themengebiet vorhanden sind",
-        "sql": """
-            SELECT tg.name AS Themengebiet, COUNT(m.material_id) AS Anzahl_Materialien
-            FROM themengebiete tg
-            LEFT JOIN materialien m ON m.themengebiet_id = tg.themengebiet_id
-            GROUP BY tg.themengebiet_id, tg.name
-            ORDER BY Anzahl_Materialien DESC
-        """
-    },
-    {
-        "titel": "Durchschnittliche Dateigröße je Thema (Aggregation)",
-        "beschreibung": "Durchschnittsgröße aller Versionen pro Themengebiet in KB",
-        "sql": """
-            SELECT tg.name AS Themengebiet,
-                   ROUND(AVG(mv.dateigroesse_bytes) / 1024, 2) AS Durchschnitt_KB,
-                   COUNT(mv.version_id) AS Anzahl_Versionen
-            FROM themengebiete tg
-            INNER JOIN materialien m ON m.themengebiet_id = tg.themengebiet_id
-            INNER JOIN material_versionen mv ON mv.material_id = m.material_id
-            GROUP BY tg.themengebiet_id, tg.name
-        """
-    },
-    {
-        "titel": "Materialien mit Autoren (Inner Join)",
-        "beschreibung": "Verknüpft Materialien mit den Benutzerdaten der Ersteller",
-        "sql": """
-            SELECT m.material_id, m.titel, b.anzeigename AS Autor, b.email
-            FROM materialien m
-            INNER JOIN benutzer b ON b.benutzer_id = m.erstellt_von
-            ORDER BY m.titel
-        """
-    },
-    {
-        "titel": "Kommentare mit Material und Autor (Inner Join)",
-        "beschreibung": "Zeigt alle Kommentare mit zugehörigem Material und Autor",
-        "sql": """
-            SELECT m.titel AS Material, b.anzeigename AS Kommentiert_von,
-                   LEFT(k.kommentartext, 60) AS Kommentar, k.erstellt_am
-            FROM kommentare k
-            INNER JOIN materialien m ON m.material_id = k.material_id
-            INNER JOIN benutzer b ON b.benutzer_id = k.autor_id
-            ORDER BY k.erstellt_am DESC
-        """
-    },
-    {
-        "titel": "Materialien pro Autor mit Rolle (Join + Aggregation)",
-        "beschreibung": "Zählt wie viele Materialien jeder Benutzer hochgeladen hat",
-        "sql": """
-            SELECT b.anzeigename AS Autor, r.name AS Rolle,
-                   COUNT(m.material_id) AS Anzahl_Materialien
-            FROM benutzer b
-            INNER JOIN rollen r ON r.rollen_id = b.rollen_id
-            INNER JOIN materialien m ON m.erstellt_von = b.benutzer_id
-            GROUP BY b.benutzer_id, b.anzeigename, r.name
-            ORDER BY Anzahl_Materialien DESC
-        """
-    },
-    {
-        "titel": "Materialien mit Thema und Version (2x Inner Join)",
-        "beschreibung": "Verbindet Materialien mit Themengebiet und aktueller Version",
-        "sql": """
-            SELECT m.titel, tg.name AS Themengebiet,
-                   mv.versionsnummer AS Version, mv.dateiname,
-                   ROUND(mv.dateigroesse_bytes / 1024, 1) AS Groesse_KB,
-                   mv.speicherstrategie
-            FROM materialien m
-            INNER JOIN themengebiete tg ON tg.themengebiet_id = m.themengebiet_id
-            INNER JOIN material_versionen mv ON mv.version_id = m.aktuelle_version_id
-            ORDER BY tg.name, m.titel
-        """
-    },
-    {
-        "titel": "Vollständige Übersicht (mehrere Joins)",
-        "beschreibung": "Verbindet Material, Autor, Thema und Version in einer Abfrage",
-        "sql": """
-            SELECT m.titel, b.anzeigename AS Autor, tg.name AS Themengebiet,
-                   mv.versionsnummer AS Version, mv.dateityp,
-                   ROUND(mv.dateigroesse_bytes / 1024, 1) AS Groesse_KB,
-                   m.erstellt_am
-            FROM materialien m
-            INNER JOIN benutzer b ON b.benutzer_id = m.erstellt_von
-            INNER JOIN themengebiete tg ON tg.themengebiet_id = m.themengebiet_id
-            INNER JOIN material_versionen mv ON mv.version_id = m.aktuelle_version_id
-            ORDER BY m.erstellt_am DESC
-        """
-    }
-]
-
-
-def standardabfrage_ausfuehren(index):
-    if index < 0 or index >= len(STANDARDABFRAGEN):
-        raise Exception("Ungültige Abfragenummer")
-
-    abfrage = STANDARDABFRAGEN[index]
-    conn = verbinden()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute(abfrage["sql"])
-    result = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return abfrage["titel"], abfrage["beschreibung"], result

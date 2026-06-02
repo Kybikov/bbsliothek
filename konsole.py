@@ -1,63 +1,47 @@
-# BBSliothek - Konsolen-Anwendung
-# Textbasierte Bedienoberfläche für die Lernmaterialverwaltung
-# Nutzt datenbank.py für alle Datenbankoperationen
-
 import os
-import sys
 import datenbank as db
 from dotenv import load_dotenv
-
 load_dotenv()
 
-# Aktuell eingeloggter Benutzer
+# aktuell eingeloggter Benutzer
 benutzer = None
 
 
-def trennlinie():
+def divider():
     print("-" * 50)
 
 
 def tabelle_ausgeben(zeilen):
-    if not zeilen:
+    if len(zeilen) == 0:
         print("(keine Ergebnisse)")
         return
-
     for zeile in zeilen:
         for key, value in zeile.items():
-            # blob_inhalt nicht ausgeben - das sind Binärdaten
             if key == "blob_inhalt":
                 continue
             print(str(key) + ": " + str(value))
         print("---")
-
     print(str(len(zeilen)) + " Ergebnis(se)")
 
 
-# -----------------------------------------------------------------------
-# Login
-# -----------------------------------------------------------------------
-
+#login
 def login():
-    global benutzer
-    trennlinie()
     print("BBSliothek - Anmelden")
-    trennlinie()
+    divider()
 
-    name = input("Benutzername: ").strip()
-    passwort = input("Passwort: ").strip()
+    global benutzer
+    name = input("Benutzername: ")
+    passwort = input("Passwort: ")
 
-    if not name or not passwort:
-        print("Fehler: Bitte Name und Passwort eingeben!")
-        return False
+    ergebnis = db.einloggen(name, passwort)
 
-    try:
-        ergebnis = db.einloggen(name, passwort)
-    except Exception as e:
-        print("Fehler bei der Datenbankverbindung: " + str(e))
-        return False
+    # zuerst so probiert - hat nicht funktioniert
+    # if ergebnis == "":
+    #     return False
 
-    if ergebnis is None:
-        print("Falscher Benutzername oder Passwort!")
+    # einloggen() gibt None zurück wenn nichts gefunden wurde
+    if ergebnis == None:
+        print("Falscher Benutzername oder Passwort")
         return False
 
     benutzer = ergebnis
@@ -65,323 +49,289 @@ def login():
     return True
 
 
-# -----------------------------------------------------------------------
-# Material hochladen
-# -----------------------------------------------------------------------
+#materialien
+def materialien_menu():
+    divider()
+    print("MATERIALIEN")
+    divider()
+
+    # Inner Join: Material + Thema + Autor + Version (über View)
+    zeilen = db.materialien_laden()
+    if len(zeilen) == 0:
+        print("Keine Materialien vorhanden.")
+        eingabe = input("\n1. Neues Material hochladen  2. Zurück: ").strip()
+        if eingabe == "1":
+            material_hochladen()
+        return
+
+    tabelle_ausgeben(zeilen)
+
+    divider()
+    print("1. Neues Material hochladen")
+    print("2. Material auswählen (herunterladen / neue Version / löschen)")
+    print("3. Suchen / Filtern")
+    print("4. Zurück")
+    wahl = input("Auswahl: ").strip()
+
+    if wahl == "1":
+        material_hochladen()
+    elif wahl == "2":
+        mat_id = input("Material-ID: ").strip()
+        try:
+            material_id = int(mat_id)
+        except ValueError:
+            print("Keine gültige ID!")
+            return
+
+        print("1. Herunterladen  2. Neue Version  3. Löschen")
+        aktion = input("Auswahl: ").strip()
+
+        if aktion == "1":
+            ziel_eingabe = input("Zielordner (leer = downloads/): ").strip()
+            ziel = None
+            if ziel_eingabe != "":
+                ziel = ziel_eingabe
+            ziel_datei = db.material_herunterladen(material_id, ziel)
+            print("Gespeichert unter: " + ziel_datei)
+
+        elif aktion == "2":
+            file_pfad = input("Pfad zur neuen Datei: ").strip()
+            if os.path.exists(file_pfad) == False:
+                print("Datei nicht gefunden!")
+                return
+            ergebnis = db.material_hochladen(file_pfad, benutzer["benutzer_id"], material_id=material_id)
+            print("Version " + str(ergebnis["version"]) + " gespeichert!")
+
+        elif aktion == "3":
+            bestaetigung = input("Wirklich löschen? (j/n): ").strip().lower()
+            if bestaetigung == "j":
+                db.material_loeschen(material_id)
+                print("Material gelöscht.")
+
+    elif wahl == "3":
+        print("\nSuchen (leer lassen = egal):")
+        titel_eingabe = input("Titel enthält: ").strip()
+        titel = None
+        if titel_eingabe != "":
+            titel = titel_eingabe
+
+        typ_eingabe = input("Dateityp (z.B. .pdf): ").strip()
+        dateityp = None
+        if typ_eingabe != "":
+            dateityp = typ_eingabe
+
+        zeilen = db.materialien_laden(titel=titel, dateityp=dateityp)
+        tabelle_ausgeben(zeilen)
+
 
 def material_hochladen():
-    trennlinie()
-    print("MATERIAL HOCHLADEN")
-    trennlinie()
+    divider()
+    print("NEUES MATERIAL HOCHLADEN")
+    divider()
 
-    pfad = input("Pfad zur Datei: ").strip()
-    if not pfad:
-        print("Fehler: Kein Pfad angegeben!")
+    file_pfad = input("Pfad zur Datei: ").strip()
+    if os.path.exists(file_pfad) == False:
+        print("Datei nicht gefunden!")
         return
 
-    if not os.path.exists(pfad):
-        print("Fehler: Datei nicht gefunden!")
-        return
+    # Dateiname als Titel verwenden
+    titel = os.path.basename(file_pfad)
 
-    # Prüfen ob neue Version oder neues Material
-    mat_id_eingabe = input("Material-ID für neue Version (leer = neues Material anlegen): ").strip()
-
-    if mat_id_eingabe:
-        # Neue Version
-        try:
-            material_id = int(mat_id_eingabe)
-        except ValueError:
-            print("Fehler: Keine gültige ID!")
-            return
-
-        ergebnis = db.material_hochladen(pfad, benutzer["benutzer_id"], material_id=material_id)
-        print("Neue Version gespeichert!")
-        print("Material-ID: " + str(ergebnis["material_id"]))
-        print("Version: " + str(ergebnis["version"]))
-        print("Gespeichert als: " + ergebnis["strategie"])
-
-    else:
-        # Neues Material
-        titel = input("Titel: ").strip()
-        if not titel:
-            print("Fehler: Titel darf nicht leer sein!")
-            return
-
-        # Themengebiete anzeigen
-        themen = db.themen_laden()
-        print("\nVerfügbare Themengebiete:")
-        for t in themen:
-            print(str(t["themengebiet_id"]) + " - " + t["name"])
-
-        thema_eingabe = input("Themengebiet-ID: ").strip()
-        try:
-            thema_id = int(thema_eingabe)
-        except ValueError:
-            print("Fehler: Keine gültige Themen-ID!")
-            return
-
-        ergebnis = db.material_hochladen(pfad, benutzer["benutzer_id"], titel=titel, thema_id=thema_id)
-        print("Material erfolgreich gespeichert!")
-        print("Material-ID: " + str(ergebnis["material_id"]))
-        print("Version: " + str(ergebnis["version"]))
-        print("Gespeichert als: " + ergebnis["strategie"])
-        if ergebnis["pfad"]:
-            print("Pfad: " + ergebnis["pfad"])
-
-
-# -----------------------------------------------------------------------
-# Materialien suchen
-# -----------------------------------------------------------------------
-
-def materialien_suchen():
-    while True:
-        trennlinie()
-        print("SUCHE")
-        trennlinie()
-        print("1. Freie Suche (Titel, Typ, Thema, Autor)")
-        print("2. Standardabfrage 1: Materialien pro Themengebiet")
-        print("3. Standardabfrage 2: Durchschnittliche Dateigröße je Thema")
-        print("4. Standardabfrage 3: Materialien mit Autoren")
-        print("5. Standardabfrage 4: Kommentare mit Material und Autor")
-        print("6. Standardabfrage 5: Materialien pro Autor mit Rolle")
-        print("7. Standardabfrage 6: Materialien mit Thema und Version")
-        print("8. Standardabfrage 7: Vollständige Übersicht")
-        print("9. Zurück")
-        trennlinie()
-
-        auswahl = input("Auswahl: ").strip()
-
-        if auswahl == "1":
-            freie_suche()
-        elif auswahl in ["2", "3", "4", "5", "6", "7", "8"]:
-            # Index ist auswahl - 2 weil die Liste ab 0 geht
-            index = int(auswahl) - 2
-            try:
-                titel, beschreibung, zeilen = db.standardabfrage_ausfuehren(index)
-                print("\n" + titel)
-                print(beschreibung)
-                trennlinie()
-                tabelle_ausgeben(zeilen)
-            except Exception as e:
-                print("Fehler: " + str(e))
-        elif auswahl == "9":
-            break
-        else:
-            print("Ungültige Auswahl!")
-
-        input("\nWeiter mit Enter...")
-
-
-def freie_suche():
-    print("\nFreie Suche (leer lassen = egal):")
-    titel = input("Titel enthält: ").strip() or None
-    dateityp = input("Dateityp (z.B. pdf): ").strip() or None
-
-    themen = db.themen_laden()
+    # Themen mit Anzahl der Materialien anzeigen (Aggregation)
+    themen = db.themen_mit_anzahl()
     print("\nThemengebiete:")
     for t in themen:
-        print(str(t["themengebiet_id"]) + " - " + t["name"])
-    thema_eingabe = input("Themengebiet-ID (leer = alle): ").strip()
-    thema_id = int(thema_eingabe) if thema_eingabe.isdigit() else None
+        print(str(t["themengebiet_id"]) + " - " + t["name"] + " (" + str(t["anzahl_materialien"]) + " Materialien)")
 
-    benutzer_liste = db.benutzer_laden()
-    print("\nBenutzer:")
-    for b in benutzer_liste:
-        print(str(b["benutzer_id"]) + " - " + b["anzeigename"])
-    autor_eingabe = input("Autor-ID (leer = alle): ").strip()
-    autor_id = int(autor_eingabe) if autor_eingabe.isdigit() else None
-
-    zeilen = db.materialien_laden(titel=titel, dateityp=dateityp, thema_id=thema_id, autor_id=autor_id)
-    trennlinie()
-    tabelle_ausgeben(zeilen)
-
-
-# -----------------------------------------------------------------------
-# Material herunterladen
-# -----------------------------------------------------------------------
-
-def material_herunterladen():
-    trennlinie()
-    print("MATERIAL HERUNTERLADEN")
-    trennlinie()
-
-    # Alle Materialien anzeigen
-    zeilen = db.materialien_laden()
-    if not zeilen:
-        print("Keine Materialien vorhanden.")
-        return
-    tabelle_ausgeben(zeilen)
-
-    mat_id_eingabe = input("\nMaterial-ID: ").strip()
+    thema_eingabe = input("Themengebiet-ID: ").strip()
     try:
-        material_id = int(mat_id_eingabe)
+        thema_id = int(thema_eingabe)
     except ValueError:
-        print("Fehler: Keine gültige ID!")
+        print("Keine gültige ID!")
         return
 
-    ziel = input("Zielordner (leer = downloads/): ").strip() or None
-
-    try:
-        ziel_datei = db.material_herunterladen(material_id, ziel)
-        print("Datei gespeichert unter: " + ziel_datei)
-
-        oeffnen = input("Datei jetzt öffnen? (j/n): ").strip().lower()
-        if oeffnen == "j":
-            if sys.platform == "win32":
-                os.startfile(ziel_datei)
-            else:
-                os.system("xdg-open " + ziel_datei)
-    except Exception as e:
-        print("Fehler: " + str(e))
+    ergebnis = db.material_hochladen(file_pfad, benutzer["benutzer_id"], titel=titel, thema_id=thema_id)
+    print("Gespeichert! Material-ID: " + str(ergebnis["material_id"]) + ", Strategie: " + ergebnis["strategie"])
 
 
-# -----------------------------------------------------------------------
-# Kommentare
-# -----------------------------------------------------------------------
+#themengebiete
+def themen_menu():
+    divider()
+    print("THEMENGEBIETE")
+    divider()
 
-def kommentare_anzeigen():
-    trennlinie()
+    # Aggregation: Themen mit Anzahl der Materialien
+    themen = db.themen_mit_anzahl()
+    tabelle_ausgeben(themen)
+
+    divider()
+    print("1. Materialien eines Themas anzeigen")
+    print("2. Neues Thema anlegen")
+    print("3. Zurück")
+    wahl = input("Auswahl: ").strip()
+
+    if wahl == "1":
+        thema_id = input("Themengebiet-ID: ").strip()
+        try:
+            thema_id = int(thema_id)
+        except ValueError:
+            print("Keine gültige ID!")
+            return
+        # Inner Join: Materialien mit Autor + Thema (über View gefiltert)
+        zeilen = db.materialien_laden(thema_id=thema_id)
+        tabelle_ausgeben(zeilen)
+
+    elif wahl == "2":
+        name = input("Name: ").strip()
+        if name == "":
+            print("Name darf nicht leer sein!")
+            return
+        beschreibung = input("Beschreibung (optional): ").strip()
+        neue_id = db.thema_anlegen(name, beschreibung)
+        print("Thema angelegt (ID: " + str(neue_id) + ")")
+
+
+#benutzer
+def benutzer_menu():
+    divider()
+    print("BENUTZER")
+    divider()
+
+    # Join + Aggregation: Benutzer mit Rolle + Anzahl Materialien
+    zeilen = db.benutzer_mit_anzahl()
+    tabelle_ausgeben(zeilen)
+
+    divider()
+    print("1. Neuen Benutzer anlegen")
+    print("2. Zurück")
+    wahl = input("Auswahl: ").strip()
+
+    if wahl == "1":
+        vorname = input("Vorname: ").strip()
+        nachname = input("Nachname: ").strip()
+        email = input("E-Mail: ").strip()
+        passwort = input("Passwort: ").strip()
+
+        rollen = db.rollen_laden()
+        for r in rollen:
+            print(str(r["rollen_id"]) + " - " + r["name"])
+        rollen_eingabe = input("Rollen-ID: ").strip()
+        try:
+            rollen_id = int(rollen_eingabe)
+        except ValueError:
+            print("Keine gültige ID!")
+            return
+
+        neue_id = db.benutzer_anlegen(vorname, nachname, email, passwort, rollen_id)
+        print("Benutzer angelegt (ID: " + str(neue_id) + ")")
+
+
+#kommentare
+def kommentare_menu():
+    divider()
     print("KOMMENTARE")
-    trennlinie()
+    divider()
 
-    zeilen = db.materialien_laden()
-    if not zeilen:
-        print("Keine Materialien vorhanden.")
-        return
+    # Aggregation: Materialien mit Anzahl der Kommentare
+    zeilen = db.materialien_mit_kommentaranzahl()
     tabelle_ausgeben(zeilen)
 
-    mat_id_eingabe = input("\nMaterial-ID: ").strip()
-    try:
-        material_id = int(mat_id_eingabe)
-    except ValueError:
-        print("Fehler: Keine gültige ID!")
-        return
+    divider()
+    print("1. Kommentare eines Materials anzeigen")
+    print("2. Kommentar hinzufügen")
+    print("3. Kommentar bearbeiten")
+    print("4. Kommentar löschen")
+    print("5. Zurück")
+    wahl = input("Auswahl: ").strip()
 
-    kommentare = db.kommentare_laden(material_id)
-    trennlinie()
-    tabelle_ausgeben(kommentare)
+    if wahl == "1":
+        mat_id = input("Material-ID: ").strip()
+        try:
+            material_id = int(mat_id)
+        except ValueError:
+            print("Keine gültige ID!")
+            return
+        # Inner Join: Kommentare mit Autor
+        kommentare = db.kommentare_laden(material_id)
+        tabelle_ausgeben(kommentare)
 
-
-def kommentar_hinzufuegen():
-    trennlinie()
-    print("KOMMENTAR HINZUFÜGEN")
-    trennlinie()
-
-    zeilen = db.materialien_laden()
-    if not zeilen:
-        print("Keine Materialien vorhanden.")
-        return
-    tabelle_ausgeben(zeilen)
-
-    mat_id_eingabe = input("\nMaterial-ID: ").strip()
-    try:
-        material_id = int(mat_id_eingabe)
-    except ValueError:
-        print("Fehler: Keine gültige ID!")
-        return
-
-    text = input("Kommentartext: ").strip()
-    if not text:
-        print("Fehler: Kommentar darf nicht leer sein!")
-        return
-
-    try:
+    elif wahl == "2":
+        mat_id = input("Material-ID: ").strip()
+        try:
+            material_id = int(mat_id)
+        except ValueError:
+            print("Keine gültige ID!")
+            return
+        text = input("Kommentartext: ").strip()
+        if text == "":
+            print("Kommentar darf nicht leer sein!")
+            return
         neue_id = db.kommentar_speichern(material_id, benutzer["benutzer_id"], text)
         print("Kommentar gespeichert (ID: " + str(neue_id) + ")")
-    except Exception as e:
-        print("Fehler: " + str(e))
+
+    elif wahl == "3":
+        kid = input("Kommentar-ID: ").strip()
+        try:
+            kommentar_id = int(kid)
+        except ValueError:
+            print("Keine gültige ID!")
+            return
+        neuer_text = input("Neuer Text: ").strip()
+        if neuer_text == "":
+            print("Text darf nicht leer sein!")
+            return
+        db.kommentar_bearbeiten(kommentar_id, neuer_text)
+        print("Kommentar gespeichert.")
+
+    elif wahl == "4":
+        kid = input("Kommentar-ID: ").strip()
+        try:
+            kommentar_id = int(kid)
+        except ValueError:
+            print("Keine gültige ID!")
+            return
+        db.kommentar_loeschen(kommentar_id)
+        print("Kommentar gelöscht.")
 
 
-# -----------------------------------------------------------------------
-# Themengebiete
-# -----------------------------------------------------------------------
-
-def themen_verwalten():
-    while True:
-        trennlinie()
-        print("THEMENGEBIETE")
-        trennlinie()
-        print("1. Alle Themengebiete anzeigen")
-        print("2. Neues Themengebiet anlegen")
-        print("3. Zurück")
-        trennlinie()
-
-        auswahl = input("Auswahl: ").strip()
-
-        if auswahl == "1":
-            zeilen = db.themen_laden()
-            tabelle_ausgeben(zeilen)
-        elif auswahl == "2":
-            name = input("Name: ").strip()
-            if not name:
-                print("Fehler: Name darf nicht leer sein!")
-                continue
-            beschreibung = input("Beschreibung (optional): ").strip()
-            neue_id = db.thema_anlegen(name, beschreibung)
-            print("Themengebiet angelegt (ID: " + str(neue_id) + ")")
-        elif auswahl == "3":
-            break
-        else:
-            print("Ungültige Auswahl!")
-
-        input("\nWeiter mit Enter...")
-
-
-# -----------------------------------------------------------------------
-# Hauptmenü
-# -----------------------------------------------------------------------
-
+#menu
 def hauptmenue():
     while True:
-        trennlinie()
+        divider()
         print("BBSliothek - Hauptmenü")
-        print("Angemeldet als: " + benutzer["anzeigename"])
-        trennlinie()
-        print("1. Material hochladen")
-        print("2. Materialien suchen / Standardabfragen")
-        print("3. Material herunterladen")
-        print("4. Kommentare anzeigen")
-        print("5. Kommentar hinzufügen")
-        print("6. Themengebiete verwalten")
-        print("7. Benutzer anzeigen")
-        print("8. Beenden")
-        trennlinie()
+        print("Hallo " + benutzer["vorname"] + "!")
+        divider()
+        print("1. Materialien")
+        print("2. Themengebiete")
+        print("3. Benutzer")
+        print("4. Kommentare")
+        print("5. Beenden")
+        divider()
 
-        auswahl = input("Auswahl: ").strip()
+        wahl = input("Auswahl: ")
 
-        if auswahl == "1":
-            material_hochladen()
-        elif auswahl == "2":
-            materialien_suchen()
-        elif auswahl == "3":
-            material_herunterladen()
-        elif auswahl == "4":
-            kommentare_anzeigen()
-        elif auswahl == "5":
-            kommentar_hinzufuegen()
-        elif auswahl == "6":
-            themen_verwalten()
-        elif auswahl == "7":
-            trennlinie()
-            tabelle_ausgeben(db.benutzer_laden())
-            input("\nWeiter mit Enter...")
-        elif auswahl == "8":
+        if wahl == "1":
+            materialien_menu()
+        elif wahl == "2":
+            themen_menu()
+        elif wahl == "3":
+            benutzer_menu()
+        elif wahl == "4":
+            kommentare_menu()
+        elif wahl == "5":
             print("Programm wird beendet.")
             break
         else:
-            print("Ungültige Auswahl! Bitte 1-8 eingeben.")
+            print("Ungültige Auswahl!")
 
+        input("\nWeiter mit Enter...")
 
-# -----------------------------------------------------------------------
-# Programmstart
-# -----------------------------------------------------------------------
 
 if __name__ == "__main__":
     print("=" * 50)
     print("  BBSliothek - Lernmaterialverwaltung")
     print("=" * 50)
 
-    # Login-Schleife - max. 3 Versuche
     versuche = 0
     eingeloggt = False
 
@@ -391,10 +341,9 @@ if __name__ == "__main__":
             break
         versuche += 1
         if versuche < 3:
-            print(f"Noch {3 - versuche} Versuch(e) übrig.")
+            print("Noch " + str(3 - versuche) + " Versuch(e).")
 
-    if not eingeloggt:
-        print("Zu viele Fehlversuche. Programm wird beendet.")
-        sys.exit(1)
-
-    hauptmenue()
+    if eingeloggt == False:
+        print("Zu viele Fehlversuche.")
+    else:
+        hauptmenue()

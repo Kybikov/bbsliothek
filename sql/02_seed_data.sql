@@ -5,11 +5,12 @@ INSERT INTO rollen (rollen_id, name, beschreibung) VALUES
     (2, 'Auszubildende', 'Auszubildende laden Materialien herunter und kommentieren Inhalte.');
 
 -- Passwörter werden als Klartext gespeichert (Schulprojekt)
-INSERT INTO benutzer (benutzer_id, rollen_id, anzeigename, email, passwort) VALUES
-    (1, 1, 'Mia Hoffmann',   'mia.hoffmann@example.org',   'lehrer123'),
-    (2, 1, 'Jonas Becker',   'jonas.becker@example.org',   'lehrer123'),
-    (3, 2, 'Aylin Yilmaz',   'aylin.yilmaz@example.org',   'azubi123'),
-    (4, 2, 'Luca Schneider', 'luca.schneider@example.org', 'azubi123');
+-- Benutzername = erster Buchstabe Vorname + "." + Nachname (kleingeschrieben)
+INSERT INTO benutzer (benutzer_id, rollen_id, benutzername, vorname, nachname, email, passwort) VALUES
+    (1, 1, 'm.hoffmann',  'Mia',   'Hoffmann',  'mia.hoffmann@example.org',   'lehrer123'),
+    (2, 1, 'j.becker',    'Jonas', 'Becker',    'jonas.becker@example.org',   'lehrer123'),
+    (3, 2, 'a.yilmaz',    'Aylin', 'Yilmaz',    'aylin.yilmaz@example.org',   'azubi123'),
+    (4, 2, 'l.schneider', 'Luca',  'Schneider', 'luca.schneider@example.org', 'azubi123');
 
 INSERT INTO themengebiete (themengebiet_id, name, beschreibung) VALUES
     (1, 'Informatik',  'Programmier- und Datenbankthemen'),

@@ -160,9 +160,8 @@ def main(page: ft.Page):
                     ft.DataColumn(ft.Text("Thema")),
                     ft.DataColumn(ft.Text("Autor")),
                     ft.DataColumn(ft.Text("Ver.")),
-                    ft.DataColumn(ft.Text("Geändert von")),
                     ft.DataColumn(ft.Text("Größe")),
-                    ft.DataColumn(ft.Text("")),
+                    ft.DataColumn(ft.Text("Aktionen")),
                 ],
                 rows=[],
                 border=ft.Border(
@@ -176,6 +175,73 @@ def main(page: ft.Page):
                 heading_row_color="#e9ecef",
                 column_spacing=16,
             )
+
+            # Dialog: neue Version hochladen
+            neueversion_pfad_feld = ft.TextField(label="Pfad zur neuen Datei", width=400)
+            neueversion_mat_id = {"id": None}
+
+            def neueversion_speichern(e):
+                pfad = neueversion_pfad_feld.value.strip()
+                if not pfad:
+                    return
+                try:
+                    result = db.material_hochladen(pfad, aktueller_benutzer["id"], material_id=neueversion_mat_id["id"])
+                    status_text.value = "Version " + str(result["version"]) + " gespeichert!"
+                    status_text.color = "green"
+                    neueversion_dialog.open = False
+                    neueversion_pfad_feld.value = ""
+                    tabelle_fuellen()
+                except Exception as fehler:
+                    status_text.value = "Fehler: " + str(fehler)
+                    status_text.color = "red"
+                page.update()
+
+            def neueversion_abbrechen(e):
+                neueversion_dialog.open = False
+                page.update()
+
+            neueversion_dialog = ft.AlertDialog(
+                title=ft.Text("Neue Version hochladen"),
+                content=neueversion_pfad_feld,
+                actions=[
+                    ft.TextButton("Abbrechen", on_click=neueversion_abbrechen),
+                    ft.FilledButton("Hochladen", on_click=neueversion_speichern),
+                ],
+            )
+            page.overlay.append(neueversion_dialog)
+
+            # Dialog: löschen bestätigen
+            loeschen_mat_id = {"id": None}
+
+            def loeschen_bestaetigen(e):
+                try:
+                    db.material_loeschen(loeschen_mat_id["id"])
+                    status_text.value = "Material gelöscht."
+                    status_text.color = "green"
+                    loeschen_dialog.open = False
+                    tabelle_fuellen()
+                except Exception as fehler:
+                    status_text.value = "Fehler: " + str(fehler)
+                    status_text.color = "red"
+                page.update()
+
+            def loeschen_abbrechen(e):
+                loeschen_dialog.open = False
+                page.update()
+
+            loeschen_dialog = ft.AlertDialog(
+                title=ft.Text("Material löschen?"),
+                content=ft.Text("Alle Versionen und Kommentare werden gelöscht."),
+                actions=[
+                    ft.TextButton("Abbrechen", on_click=loeschen_abbrechen),
+                    ft.FilledButton(
+                        "Löschen",
+                        on_click=loeschen_bestaetigen,
+                        style=ft.ButtonStyle(bgcolor=ft.Colors.RED_400),
+                    ),
+                ],
+            )
+            page.overlay.append(loeschen_dialog)
 
             def tabelle_fuellen(titel=None, dateityp=None, autor_id=None):
                 try:
@@ -197,15 +263,28 @@ def main(page: ft.Page):
                                 ft.DataCell(ft.Text(m["themengebiet"][:18])),
                                 ft.DataCell(ft.Text(m["autor"][:16])),
                                 ft.DataCell(ft.Text(str(m["version"]))),
-                                ft.DataCell(ft.Text(m["zuletzt_geaendert_von"][:16])),
                                 ft.DataCell(ft.Text(str(kb) + " KB")),
                                 ft.DataCell(
-                                    ft.IconButton(
-                                        icon=ft.Icons.DOWNLOAD_OUTLINED,
-                                        tooltip="Herunterladen",
-                                        icon_color=ft.Colors.BLUE_600,
-                                        on_click=lambda e, x=mid: herunterladen(x),
-                                    )
+                                    ft.Row([
+                                        ft.IconButton(
+                                            icon=ft.Icons.DOWNLOAD_OUTLINED,
+                                            tooltip="Herunterladen",
+                                            icon_color=ft.Colors.BLUE_600,
+                                            on_click=lambda e, x=mid: herunterladen(x),
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.UPLOAD_FILE_OUTLINED,
+                                            tooltip="Neue Version",
+                                            icon_color=ft.Colors.GREEN_600,
+                                            on_click=lambda e, x=mid: neue_version_oeffnen(x),
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.DELETE_OUTLINE,
+                                            tooltip="Löschen",
+                                            icon_color=ft.Colors.RED_400,
+                                            on_click=lambda e, x=mid: loeschen_oeffnen(x),
+                                        ),
+                                    ], spacing=0)
                                 ),
                             ])
                         )
@@ -229,6 +308,17 @@ def main(page: ft.Page):
                     status_text.value = "Fehler: " + str(fehler)
                     status_text.color = "red"
                     page.update()
+
+            def neue_version_oeffnen(material_id):
+                neueversion_mat_id["id"] = material_id
+                neueversion_pfad_feld.value = ""
+                neueversion_dialog.open = True
+                page.update()
+
+            def loeschen_oeffnen(material_id):
+                loeschen_mat_id["id"] = material_id
+                loeschen_dialog.open = True
+                page.update()
 
             def suchen(e):
                 autor_id = int(autor_filter.value) if autor_filter.value else None
@@ -283,16 +373,8 @@ def main(page: ft.Page):
                 ],
             )
 
-            version_feld = ft.TextField(
-                label="Material-ID für neue Version (leer = neues Material)",
-                width=420,
-                hint_text="z.B. 3",
-            )
             status_text = ft.Text("", size=13)
 
-            # Neue FilePicker API in Flet 0.80: async, kein page.overlay nötig
-            # Quelle: https://flet.app/gallery/utility/filepicker
-            # Kein FLET_SECRET_KEY nötig - wir lesen nur den lokalen Pfad (files[0].path)
             async def datei_auswaehlen(e):
                 picker = ft.FilePicker()
                 files = await picker.pick_files(allow_multiple=False)
@@ -300,13 +382,11 @@ def main(page: ft.Page):
                     return
                 f = files[0]
                 if f.path:
-                    # Desktop: lokaler Pfad direkt verfügbar
                     pfad_feld.value = f.path
                     dateiname_text.value = f.name
                     dateiname_text.color = ft.Colors.BLUE_700
                 else:
-                    # Web-Modus: Browser gibt keinen lokalen Pfad
-                    # Benutzer muss den Server-Pfad manuell eingeben
+                    # Web-Modus: Browser gibt keinen lokalen Pfad zurück
                     dateiname_text.value = f.name + " (Pfad manuell eingeben)"
                     dateiname_text.color = "orange"
                 page.update()
@@ -318,55 +398,41 @@ def main(page: ft.Page):
                     status_text.color = "red"
                     page.update()
                     return
-
-                try:
-                    mat_id = int(version_feld.value.strip()) if version_feld.value.strip() else None
-
-                    if mat_id is None:
-                        if not titel_feld.value.strip():
-                            status_text.value = "Bitte einen Titel eingeben!"
-                            status_text.color = "red"
-                            page.update()
-                            return
-                        if not thema_dropdown.value:
-                            status_text.value = "Bitte ein Themengebiet auswählen!"
-                            status_text.color = "red"
-                            page.update()
-                            return
-                        result = db.material_hochladen(
-                            quelldatei=quelldatei,
-                            autor_id=aktueller_benutzer["id"],
-                            titel=titel_feld.value.strip(),
-                            thema_id=int(thema_dropdown.value),
-                        )
-                    else:
-                        result = db.material_hochladen(
-                            quelldatei=quelldatei,
-                            autor_id=aktueller_benutzer["id"],
-                            material_id=mat_id,
-                        )
-
-                    status_text.value = (
-                        "Erfolgreich hochgeladen!  "
-                        "Material-ID: " + str(result["material_id"]) +
-                        "  |  Version: " + str(result["version"])
-                    )
-                    status_text.color = "green"
+                if not titel_feld.value.strip():
+                    status_text.value = "Bitte einen Titel eingeben!"
+                    status_text.color = "red"
                     page.update()
-
+                    return
+                if not thema_dropdown.value:
+                    status_text.value = "Bitte ein Themengebiet auswählen!"
+                    status_text.color = "red"
+                    page.update()
+                    return
+                try:
+                    result = db.material_hochladen(
+                        quelldatei,
+                        aktueller_benutzer["id"],
+                        titel=titel_feld.value.strip(),
+                        thema_id=int(thema_dropdown.value),
+                    )
+                    status_text.value = "Gespeichert! Material-ID: " + str(result["material_id"])
+                    status_text.color = "green"
+                    titel_feld.value = ""
+                    pfad_feld.value = ""
+                    page.update()
                 except Exception as fehler:
                     status_text.value = "Fehler: " + str(fehler)
                     status_text.color = "red"
                     page.update()
 
             seite_laden([
-                ft.Text("Material hochladen", size=26, weight=ft.FontWeight.BOLD),
+                ft.Text("Neues Material hochladen", size=26, weight=ft.FontWeight.BOLD),
+                ft.Text("Neue Version eines bestehenden Materials → Materialien → Upload-Symbol", size=12, color="grey"),
                 ft.Card(
                     elevation=2,
                     content=ft.Container(
                         padding=24,
                         content=ft.Column([
-                            ft.Text("1. Datei auswählen", size=15, weight=ft.FontWeight.W_600),
                             ft.Row([
                                 ft.FilledButton(
                                     "Datei auswählen …",
@@ -380,16 +446,9 @@ def main(page: ft.Page):
                                 "Windows: Shift + Rechtsklick auf Datei → 'Als Pfad kopieren'",
                                 size=11, color="grey",
                             ),
-                            ft.Divider(height=20),
-                            ft.Text("2. Informationen", size=15, weight=ft.FontWeight.W_600),
+                            ft.Divider(height=10),
                             titel_feld,
                             thema_dropdown,
-                            version_feld,
-                            ft.Text(
-                                "Wenn eine Material-ID angegeben wird → neue Version.",
-                                size=11, color="grey",
-                            ),
-                            ft.Divider(height=20),
                             ft.Text(
                                 "Hochladen als: " + aktueller_benutzer["name"],
                                 size=12, color="grey",
@@ -689,18 +748,31 @@ def main(page: ft.Page):
             status_text = ft.Text("", size=13)
 
             def themen_neu_laden():
-                themen = db.themen_laden()
+                themen = db.themen_mit_anzahl()
                 themen_liste.controls.clear()
                 for t in themen:
-                    beschreibung = t["beschreibung"] if t["beschreibung"] else "–"
                     themen_liste.controls.append(
                         ft.ListTile(
                             leading=ft.Icon(ft.Icons.FOLDER_OUTLINED, color=ft.Colors.BLUE_600),
                             title=ft.Text(t["name"]),
-                            subtitle=ft.Text(beschreibung, size=12),
+                            subtitle=ft.Text(str(t["anzahl_materialien"]) + " Materialien", size=12),
+                            trailing=ft.IconButton(
+                                icon=ft.Icons.ARROW_FORWARD_IOS,
+                                icon_size=14,
+                                tooltip="Materialien anzeigen",
+                                on_click=lambda e, tid=t["themengebiet_id"]: zeige_materialien_nach_thema(tid),
+                            ),
                             dense=True,
                         )
                     )
+                page.update()
+
+            def zeige_materialien_nach_thema(thema_id):
+                zeilen = db.materialien_laden(thema_id=thema_id)
+                status_text.value = str(len(zeilen)) + " Materialien in diesem Thema"
+                status_text.color = "grey"
+                # Materialien-Seite mit Filter öffnen
+                zeige_materialien()
                 page.update()
 
             def thema_anlegen(e):
@@ -765,11 +837,9 @@ def main(page: ft.Page):
         def zeige_benutzer(e=None):
             benutzer_tabelle = ft.DataTable(
                 columns=[
-                    ft.DataColumn(ft.Text("ID")),
                     ft.DataColumn(ft.Text("Name")),
-                    ft.DataColumn(ft.Text("E-Mail")),
                     ft.DataColumn(ft.Text("Rolle")),
-                    ft.DataColumn(ft.Text("Registriert am")),
+                    ft.DataColumn(ft.Text("Materialien")),
                 ],
                 rows=[],
                 border=ft.Border(
@@ -783,25 +853,24 @@ def main(page: ft.Page):
             )
 
             def benutzer_neu_laden():
-                benutzer = db.benutzer_laden()
+                benutzer_liste = db.benutzer_mit_anzahl()
                 benutzer_tabelle.rows.clear()
-                for b in benutzer:
+                for b in benutzer_liste:
                     benutzer_tabelle.rows.append(
                         ft.DataRow(cells=[
-                            ft.DataCell(ft.Text(str(b["benutzer_id"]))),
-                            ft.DataCell(ft.Text(b["anzeigename"])),
-                            ft.DataCell(ft.Text(b["email"])),
+                            ft.DataCell(ft.Text(b["name"])),
                             ft.DataCell(ft.Text(b["rolle"])),
-                            ft.DataCell(ft.Text(str(b["erstellt_am"])[:10])),
+                            ft.DataCell(ft.Text(str(b["anzahl_materialien"]))),
                         ])
                     )
                 page.update()
 
             # Neuen Benutzer anlegen
             rollen = db.rollen_laden()
-            name_feld     = ft.TextField(label="Anzeigename", width=280)
-            email_feld    = ft.TextField(label="E-Mail",       width=280)
-            passwort_feld = ft.TextField(label="Passwort",     width=280, password=True, can_reveal_password=True)
+            name_feld     = ft.TextField(label="Vorname",  width=180)
+            nachname_feld = ft.TextField(label="Nachname", width=180)
+            email_feld    = ft.TextField(label="E-Mail",   width=280)
+            passwort_feld = ft.TextField(label="Passwort", width=280, password=True, can_reveal_password=True)
             rollen_dd = ft.Dropdown(
                 label="Rolle",
                 width=200,
@@ -813,7 +882,7 @@ def main(page: ft.Page):
             status_text = ft.Text("", size=13)
 
             def anlegen(e):
-                if not name_feld.value.strip() or not email_feld.value.strip() or not passwort_feld.value:
+                if not name_feld.value.strip() or not nachname_feld.value.strip() or not email_feld.value.strip() or not passwort_feld.value:
                     status_text.value = "Bitte alle Felder ausfüllen!"
                     status_text.color = "red"
                     page.update()
@@ -835,6 +904,7 @@ def main(page: ft.Page):
                 try:
                     neue_id = db.benutzer_anlegen(
                         name_feld.value.strip(),
+                        nachname_feld.value.strip(),
                         email_feld.value.strip(),
                         passwort_feld.value,
                         int(rollen_dd.value),
@@ -857,7 +927,8 @@ def main(page: ft.Page):
                 ft.Container(content=benutzer_tabelle, padding=ft.Padding(top=0, left=0, right=0, bottom=16)),
                 ft.Divider(),
                 ft.Text("Neuen Benutzer anlegen", size=15, weight=ft.FontWeight.W_600),
-                ft.Row([name_feld, email_feld], spacing=12),
+                ft.Row([name_feld, nachname_feld], spacing=12),
+                ft.Row([email_feld], spacing=12),
                 ft.Row([passwort_feld, rollen_dd], spacing=12),
                 ft.FilledButton("Anlegen", icon=ft.Icons.PERSON_ADD, on_click=anlegen),
                 status_text,
@@ -870,10 +941,9 @@ def main(page: ft.Page):
             idx = e.control.selected_index
             if   idx == 0: zeige_materialien()
             elif idx == 1: zeige_upload()
-            elif idx == 2: zeige_abfragen()
-            elif idx == 3: zeige_kommentare()
-            elif idx == 4: zeige_themen()
-            elif idx == 5: zeige_benutzer()
+            elif idx == 2: zeige_kommentare()
+            elif idx == 3: zeige_themen()
+            elif idx == 4: zeige_benutzer()
 
         nav = ft.NavigationRail(
             selected_index=0,
@@ -909,11 +979,6 @@ def main(page: ft.Page):
                     icon=ft.Icons.UPLOAD_FILE_OUTLINED,
                     selected_icon=ft.Icons.UPLOAD_FILE,
                     label="Upload",
-                ),
-                ft.NavigationRailDestination(
-                    icon=ft.Icons.QUERY_STATS_OUTLINED,
-                    selected_icon=ft.Icons.QUERY_STATS,
-                    label="Abfragen",
                 ),
                 ft.NavigationRailDestination(
                     icon=ft.Icons.COMMENT_OUTLINED,

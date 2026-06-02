@@ -14,7 +14,9 @@ CREATE TABLE rollen (
 CREATE TABLE benutzer (
     benutzer_id  INT AUTO_INCREMENT PRIMARY KEY,
     rollen_id    INT          NOT NULL,
-    anzeigename  VARCHAR(120) NOT NULL UNIQUE,
+    benutzername VARCHAR(60)  NOT NULL UNIQUE,
+    vorname      VARCHAR(60)  NOT NULL,
+    nachname     VARCHAR(60)  NOT NULL,
     email        VARCHAR(255) NOT NULL UNIQUE,
     passwort     VARCHAR(255) NOT NULL DEFAULT 'password123',
     erstellt_am  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -88,8 +90,8 @@ SELECT
     m.material_id,
     m.titel,
     m.themengebiet_id,
-    m.erstellt_von         AS material_autor_id,
-    a.anzeigename          AS material_autor_name,
+    m.erstellt_von                          AS material_autor_id,
+    CONCAT(a.vorname, ' ', a.nachname)      AS material_autor_name,
     tg.name                AS themengebiet_name,
     m.erstellt_am          AS material_erstellt_am,
     m.geaendert_am         AS material_geaendert_am,
@@ -101,8 +103,8 @@ SELECT
     mv.speicherstrategie,
     mv.blob_inhalt,
     mv.dateipfad,
-    mv.erstellt_von        AS version_autor_id,
-    va.anzeigename         AS version_autor_name,
+    mv.erstellt_von                         AS version_autor_id,
+    CONCAT(va.vorname, ' ', va.nachname)    AS version_autor_name,
     mv.erstellt_am         AS version_erstellt_am
 FROM materialien m
 INNER JOIN material_versionen mv ON mv.version_id      = m.aktuelle_version_id
