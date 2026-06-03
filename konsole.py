@@ -4,24 +4,25 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # aktuell eingeloggter Benutzer
-benutzer = None
+user = None
 
 
 def divider():
     print("-" * 50)
 
 
-def tabelle_ausgeben(zeilen):
-    if len(zeilen) == 0:
+def tabelle_ausgeben(row):
+    if not row:
+    #if row == []:
         print("(keine Ergebnisse)")
         return
-    for zeile in zeilen:
+    for zeile in row:
         for key, value in zeile.items():
             if key == "blob_inhalt":
                 continue
             print(str(key) + ": " + str(value))
         print("---")
-    print(str(len(zeilen)) + " Ergebnis(se)")
+    print(str(len(row)) + " Ergebnis(se)")
 
 
 #login
@@ -29,37 +30,72 @@ def login():
     print("BBSliothek - Anmelden")
     divider()
 
-    global benutzer
+    global user
     name = input("Benutzername: ")
     passwort = input("Passwort: ")
 
-    ergebnis = db.einloggen(name, passwort)
+    loggpass = db.einloggen(name, passwort)
 
-    # zuerst so probiert - hat nicht funktioniert
-    # if ergebnis == "":
-    #     return False
+    #print(loggpass)
+    #if loggpass == "":
+    #    return False
+    #loggpass()  None zurück wenn falsch login oder pass
 
-    # einloggen() gibt None zurück wenn nichts gefunden wurde
-    if ergebnis == None:
+    if loggpass == None:
         print("Falscher Benutzername oder Passwort")
         return False
 
-    benutzer = ergebnis
-    print("Angemeldet als: " + benutzer["anzeigename"] + " (" + benutzer["rolle"] + ")")
+    user = loggpass
+    print("Angemeldet als: " + user["anzeigename"] + " (" + user["rolle"] + ")")
     return True
 
 
+
+#menu
+def mainmenu():
+    while True:
+        divider()
+        print("BBSliothek - Hauptmenü")
+        print("Moin Chef " + user["vorname"] + "!")
+        divider()
+        print("1. Materialien")
+        print("2. Themengebiete")
+        print("3. Benutzer")
+        print("4. Kommentare")
+        print("5. Beenden")
+        divider()
+
+        wahl = input("Auswahl 1-5: ")
+
+        if wahl == "1":
+            materialien()
+        elif wahl == "2":
+            themen_menu()
+        elif wahl == "3":
+            benutzer_menu()
+        elif wahl == "4":
+            kommentare_menu()
+        elif wahl == "5":
+            print("Programm wird beendet.")
+            break
+        else:
+            print("Ungültige Auswahl!")
+
+        input("\nWeiter mit Enter...")
+
+
+
+
 #materialien
-def materialien_menu():
+def materialien():
     divider()
     print("MATERIALIEN")
     divider()
 
-    # Inner Join: Material + Thema + Autor + Version (über View)
     zeilen = db.materialien_laden()
     if len(zeilen) == 0:
         print("Keine Materialien vorhanden.")
-        eingabe = input("\n1. Neues Material hochladen  2. Zurück: ").strip()
+        eingabe = input("\n1. Neues Material hochladen  2. Zurück: ")
         if eingabe == "1":
             material_hochladen()
         return
@@ -71,12 +107,12 @@ def materialien_menu():
     print("2. Material auswählen (herunterladen / neue Version / löschen)")
     print("3. Suchen / Filtern")
     print("4. Zurück")
-    wahl = input("Auswahl: ").strip()
+    wahl = input("Auswahl: ")
 
     if wahl == "1":
         material_hochladen()
     elif wahl == "2":
-        mat_id = input("Material-ID: ").strip()
+        mat_id = input("Material-ID: ")
         try:
             material_id = int(mat_id)
         except ValueError:
@@ -84,10 +120,10 @@ def materialien_menu():
             return
 
         print("1. Herunterladen  2. Neue Version  3. Löschen")
-        aktion = input("Auswahl: ").strip()
+        aktion = input("Auswahl: ")
 
         if aktion == "1":
-            ziel_eingabe = input("Zielordner (leer = downloads/): ").strip()
+            ziel_eingabe = input("Zielordner (leer = downloads/): ")
             ziel = None
             if ziel_eingabe != "":
                 ziel = ziel_eingabe
@@ -95,27 +131,27 @@ def materialien_menu():
             print("Gespeichert unter: " + ziel_datei)
 
         elif aktion == "2":
-            file_pfad = input("Pfad zur neuen Datei: ").strip()
+            file_pfad = input("Pfad zur neuen Datei: ")
             if os.path.exists(file_pfad) == False:
                 print("Datei nicht gefunden!")
                 return
-            ergebnis = db.material_hochladen(file_pfad, benutzer["benutzer_id"], material_id=material_id)
+            ergebnis = db.material_hochladen(file_pfad, user["benutzer_id"], material_id=material_id)
             print("Version " + str(ergebnis["version"]) + " gespeichert!")
 
         elif aktion == "3":
-            bestaetigung = input("Wirklich löschen? (j/n): ").strip().lower()
+            bestaetigung = input("Wirklich löschen? (j/n): ").lower()
             if bestaetigung == "j":
                 db.material_loeschen(material_id)
                 print("Material gelöscht.")
 
     elif wahl == "3":
         print("\nSuchen (leer lassen = egal):")
-        titel_eingabe = input("Titel enthält: ").strip()
+        titel_eingabe = input("Titel enthält: ")
         titel = None
         if titel_eingabe != "":
             titel = titel_eingabe
 
-        typ_eingabe = input("Dateityp (z.B. .pdf): ").strip()
+        typ_eingabe = input("Dateityp (z.B. .pdf): ")
         dateityp = None
         if typ_eingabe != "":
             dateityp = typ_eingabe
@@ -129,7 +165,7 @@ def material_hochladen():
     print("NEUES MATERIAL HOCHLADEN")
     divider()
 
-    file_pfad = input("Pfad zur Datei: ").strip()
+    file_pfad = input("Pfad zur Datei: ")
     if os.path.exists(file_pfad) == False:
         print("Datei nicht gefunden!")
         return
@@ -143,15 +179,18 @@ def material_hochladen():
     for t in themen:
         print(str(t["themengebiet_id"]) + " - " + t["name"] + " (" + str(t["anzahl_materialien"]) + " Materialien)")
 
-    thema_eingabe = input("Themengebiet-ID: ").strip()
+    thema_eingabe = input("Themengebiet-ID: ")
     try:
         thema_id = int(thema_eingabe)
     except ValueError:
         print("Keine gültige ID!")
         return
 
-    ergebnis = db.material_hochladen(file_pfad, benutzer["benutzer_id"], titel=titel, thema_id=thema_id)
-    print("Gespeichert! Material-ID: " + str(ergebnis["material_id"]) + ", Strategie: " + ergebnis["strategie"])
+    ergebnis = db.material_hochladen(file_pfad, user["benutzer_id"], titel=titel, thema_id=thema_id)
+    if ergebnis["in_datenbank"] == True:
+        print("Gespeichert! Material-ID: " + str(ergebnis["material_id"]) + " (in Datenbank gespeichert)")
+    else:
+        print("Gespeichert! Material-ID: " + str(ergebnis["material_id"]) + " (im Dateisystem gespeichert)")
 
 
 #themengebiete
@@ -266,7 +305,7 @@ def kommentare_menu():
         if text == "":
             print("Kommentar darf nicht leer sein!")
             return
-        neue_id = db.kommentar_speichern(material_id, benutzer["benutzer_id"], text)
+        neue_id = db.kommentar_speichern(material_id, user["benutzer_id"], text)
         print("Kommentar gespeichert (ID: " + str(neue_id) + ")")
 
     elif wahl == "3":
@@ -294,56 +333,25 @@ def kommentare_menu():
         print("Kommentar gelöscht.")
 
 
-#menu
-def hauptmenue():
-    while True:
-        divider()
-        print("BBSliothek - Hauptmenü")
-        print("Hallo " + benutzer["vorname"] + "!")
-        divider()
-        print("1. Materialien")
-        print("2. Themengebiete")
-        print("3. Benutzer")
-        print("4. Kommentare")
-        print("5. Beenden")
-        divider()
-
-        wahl = input("Auswahl: ")
-
-        if wahl == "1":
-            materialien_menu()
-        elif wahl == "2":
-            themen_menu()
-        elif wahl == "3":
-            benutzer_menu()
-        elif wahl == "4":
-            kommentare_menu()
-        elif wahl == "5":
-            print("Programm wird beendet.")
-            break
-        else:
-            print("Ungültige Auswahl!")
-
-        input("\nWeiter mit Enter...")
 
 
 if __name__ == "__main__":
-    print("=" * 50)
+    divider()
     print("  BBSliothek - Lernmaterialverwaltung")
-    print("=" * 50)
+    divider()
 
     versuche = 0
-    eingeloggt = False
+    eingelogged = False
 
-    while versuche < 3:
-        if login():
-            eingeloggt = True
+    for i in range(3):
+        if login() == True:
+            eingelogged = True
             break
-        versuche += 1
-        if versuche < 3:
-            print("Noch " + str(3 - versuche) + " Versuch(e).")
+        elif i < 2:
+            print("Noch " + str(2 - i) + " Versuch(e)")
+            divider()
 
-    if eingeloggt == False:
-        print("Zu viele Fehlversuche.")
+    if eingelogged == True:
+        mainmenu()
     else:
-        hauptmenue()
+        print("Zu viele Fehlversuche.")

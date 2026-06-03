@@ -6,7 +6,7 @@ INSERT INTO rollen (rollen_id, name, beschreibung) VALUES
 
 -- Passwörter werden als Klartext gespeichert (Schulprojekt)
 -- Benutzername = erster Buchstabe Vorname + "." + Nachname (kleingeschrieben)
-INSERT INTO benutzer (benutzer_id, rollen_id, benutzername, vorname, nachname, email, passwort) VALUES
+INSERT INTO benutzer (benutzer_id, rollen_id, username, vorname, nachname, email, passwort) VALUES
     (1, 1, 'm.hoffmann',  'Mia',   'Hoffmann',  'mia.hoffmann@example.org',   'lehrer123'),
     (2, 1, 'j.becker',    'Jonas', 'Becker',    'jonas.becker@example.org',   'lehrer123'),
     (3, 2, 'a.yilmaz',    'Aylin', 'Yilmaz',    'aylin.yilmaz@example.org',   'azubi123'),
@@ -29,11 +29,11 @@ INSERT INTO materialien (material_id, titel, themengebiet_id, erstellt_von, aktu
 -- Versionen anlegen
 -- Kleine Dateien (unter 1 MB) werden als BLOB direkt in der Datenbank gespeichert
 -- Große Dateien werden nur als Pfad gespeichert
-INSERT INTO material_versionen (version_id, material_id, versionsnummer, dateiname, dateityp, dateigroesse_bytes, speicherstrategie, blob_inhalt, dateipfad, erstellt_von) VALUES
-    (1, 1, 1, 'python_einfuehrung.py',   '.py',  512,     'DB_BLOB',    'print("Hallo Welt!")\nname = input("Dein Name: ")\nprint("Hallo " + name)', NULL, 1),
-    (2, 2, 1, 'mathe_grundlagen.txt',    '.txt', 256,     'DB_BLOB',    'Grundlagen der Mathematik\n1. Addition\n2. Subtraktion\n3. Multiplikation', NULL, 2),
-    (3, 3, 1, 'datenbanken_skript.pdf',  '.pdf', 3200000, 'DATEISYSTEM', NULL, 'storage/materials/datenbanken_skript.pdf', 1),
-    (4, 4, 1, 'erste_hilfe.pdf',         '.pdf', 1500000, 'DATEISYSTEM', NULL, 'storage/materials/erste_hilfe.pdf', 2);
+INSERT INTO material_versionen (version_id, material_id, versionsnummer, dateiname, dateityp, dateigroesse_bytes, in_datenbank, blob_inhalt, dateipfad, erstellt_von) VALUES
+    (1, 1, 1, 'python_einfuehrung.py',   '.py',  512,     TRUE,  'print("Hallo Welt!")\nname = input("Dein Name: ")\nprint("Hallo " + name)', NULL, 1),
+    (2, 2, 1, 'mathe_grundlagen.txt',    '.txt', 256,     TRUE,  'Grundlagen der Mathematik\n1. Addition\n2. Subtraktion\n3. Multiplikation', NULL, 2),
+    (3, 3, 1, 'datenbanken_skript.pdf',  '.pdf', 3200000, FALSE, NULL, 'storage/materials/datenbanken_skript.pdf', 1),
+    (4, 4, 1, 'erste_hilfe.pdf',         '.pdf', 1500000, FALSE, NULL, 'storage/materials/erste_hilfe.pdf', 2);
 
 -- Zeiger auf aktuelle Version setzen
 UPDATE materialien SET aktuelle_version_id = 1 WHERE material_id = 1;

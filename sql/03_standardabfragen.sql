@@ -58,7 +58,7 @@ SELECT
     mv.versionsnummer AS Version,
     mv.dateiname,
     ROUND(mv.dateigroesse_bytes / 1024, 1) AS Groesse_KB,
-    mv.speicherstrategie
+    mv.in_datenbank
 FROM materialien m
 INNER JOIN themengebiete tg ON tg.themengebiet_id = m.themengebiet_id
 INNER JOIN material_versionen mv ON mv.version_id = m.aktuelle_version_id

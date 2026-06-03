@@ -48,12 +48,12 @@ def einloggen(benutzername, passwort):
     db = verbinden()
     cur = db.cursor(dictionary=True)
     cur.execute("""
-        SELECT b.benutzer_id, b.benutzername, b.vorname, b.nachname,
+        SELECT b.benutzer_id, b.username, b.vorname, b.nachname,
                CONCAT(b.vorname, ' ', b.nachname) AS anzeigename,
                b.email, r.name AS rolle
         FROM benutzer b
         INNER JOIN rollen r ON r.rollen_id = b.rollen_id
-        WHERE b.benutzername = %s AND b.passwort = %s
+        WHERE b.username = %s AND b.passwort = %s
     """, (benutzername, passwort))
     row = cur.fetchone()
     db.close()
@@ -102,7 +102,7 @@ def benutzer_anlegen(vorname, nachname, email, passwort, rollen_id):
     db = verbinden()
     cur = db.cursor()
     cur.execute("""
-        INSERT INTO benutzer (rollen_id, benutzername, vorname, nachname, email, passwort)
+        INSERT INTO benutzer (rollen_id, username, vorname, nachname, email, passwort)
         VALUES (%s, %s, %s, %s, %s, %s)
     """, (rollen_id, benutzername, vorname, nachname, email, passwort))
     db.commit()
@@ -179,7 +179,7 @@ def materialien_laden(titel=None, dateityp=None, thema_id=None, autor_id=None):
                material_autor_id,
                versionsnummer AS version,
                dateigroesse_bytes,
-               speicherstrategie,
+               in_datenbank,
                material_erstellt_am AS erstellt_am,
                version_autor_name AS zuletzt_geaendert_von
         FROM vw_material_aktuell
@@ -222,12 +222,14 @@ def material_hochladen(quelldatei, autor_id, titel=None, thema_id=None, material
 
     # Speicherstrategie: unter 1 MB -> BLOB, sonst -> Dateisystem
     if groesse < 1000000:
-        strategie = "DB_BLOB"
+        # Kleine Datei: direkt als BLOB in die Datenbank speichern
+        in_datenbank = True
         with open(quelldatei, "rb") as f:
             blob_inhalt = f.read()
         ziel_pfad = None
     else:
-        strategie = "DATEISYSTEM"
+        # Große Datei: ins Dateisystem kopieren, nur Pfad in DB speichern
+        in_datenbank = False
         blob_inhalt = None
         if os.path.exists(STORAGE_ORDNER) == False:
             os.makedirs(STORAGE_ORDNER)
@@ -261,10 +263,10 @@ def material_hochladen(quelldatei, autor_id, titel=None, thema_id=None, material
     cur.execute("""
         INSERT INTO material_versionen
         (material_id, versionsnummer, dateiname, dateityp, dateigroesse_bytes,
-         speicherstrategie, blob_inhalt, dateipfad, erstellt_von, erstellt_am)
+         in_datenbank, blob_inhalt, dateipfad, erstellt_von, erstellt_am)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
     """, (material_id, naechste_version, dateiname, dateityp, groesse,
-          strategie, blob_inhalt, ziel_pfad, autor_id))
+          in_datenbank, blob_inhalt, ziel_pfad, autor_id))
     version_id = cur.lastrowid
 
     # Zeiger auf aktuelle Version aktualisieren
@@ -278,7 +280,7 @@ def material_hochladen(quelldatei, autor_id, titel=None, thema_id=None, material
     return {
         "material_id": material_id,
         "version": naechste_version,
-        "strategie": strategie,
+        "in_datenbank": in_datenbank,
         "pfad": ziel_pfad
     }
 
@@ -308,7 +310,7 @@ def material_herunterladen(material_id, ziel_ordner=None):
     db = verbinden()
     cur = db.cursor(dictionary=True)
     cur.execute("""
-        SELECT dateiname, speicherstrategie, blob_inhalt, dateipfad
+        SELECT dateiname, in_datenbank, blob_inhalt, dateipfad
         FROM vw_material_aktuell
         WHERE material_id = %s
     """, (material_id,))
@@ -320,7 +322,7 @@ def material_herunterladen(material_id, ziel_ordner=None):
 
     ziel_datei = os.path.join(ziel_ordner, row["dateiname"])
 
-    if row["speicherstrategie"] == "DB_BLOB":
+    if row["in_datenbank"] == True:
         # BLOB aus der Datenbank in eine Datei schreiben
         with open(ziel_datei, "wb") as f:
             f.write(row["blob_inhalt"])
