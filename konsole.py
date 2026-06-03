@@ -11,18 +11,18 @@ def divider():
     print("-" * 50)
 
 
-def tabelle_ausgeben(row):
-    if not row:
+def tabelle_ausgeben(zeilen):
+    if not zeilen:
     #if row == []:
         print("(keine Ergebnisse)")
         return
-    for zeile in row:
+    for zeile in zeilen:
         for key, value in zeile.items():
             if key == "blob_inhalt":
                 continue
             print(str(key) + ": " + str(value))
         print("---")
-    print(str(len(row)) + " Ergebnis(se)")
+    print(str(len(zeilen)) + " Ergebnis(se)")
 
 
 #login
