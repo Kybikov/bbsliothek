@@ -147,14 +147,14 @@ python main.py
 python main.py --web
 ```
 
-### Testbenutzer
+### Präsentationsbenutzer
 
-| Name | Passwort | Rolle |
-|---|---|---|
-| Mia Hoffmann | lehrer123 | Lehrkraft |
-| Jonas Becker | lehrer123 | Lehrkraft |
-| Aylin Yilmaz | azubi123 | Auszubildende |
-| Luca Schneider | azubi123 | Auszubildende |
+Für die Präsentation können die Benutzer aus `sql/04_praesentation_benutzer.sql`
+verwendet werden.
+
+- Benutzername: steht im SQL-Skript, z. B. `a.ergeson.nitonde`
+- Passwort: `azubi123`
+- Rolle: `Auszubildende`
 
 ---
 

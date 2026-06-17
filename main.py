@@ -29,11 +29,81 @@ def datei_oeffnen(pfad):
 
 def main(page: ft.Page):
     page.title = "BBSliothek – Lernmaterialverwaltung"
-    page.theme_mode = ft.ThemeMode.LIGHT
     page.window.width = 1200
     page.window.height = 800
     page.padding = 0
-    page.bgcolor = "#f8f9fa"
+
+    theme_state = {"dark": False}
+    ansicht = {"index": 0}
+
+    def farben():
+        if theme_state["dark"]:
+            return {
+                "bg": "#111827",
+                "surface": "#1f2937",
+                "surface_soft": "#273447",
+                "border": "#374151",
+                "text": "#f9fafb",
+                "muted": "#cbd5e1",
+                "primary": ft.Colors.BLUE_300,
+                "primary_soft": "#1e3a5f",
+                "table_head": "#253244",
+            }
+        return {
+            "bg": "#f8f9fa",
+            "surface": ft.Colors.WHITE,
+            "surface_soft": "#f1f5f9",
+            "border": "#dee2e6",
+            "text": "#111827",
+            "muted": "#6b7280",
+            "primary": ft.Colors.BLUE_700,
+            "primary_soft": "#e3f2fd",
+            "table_head": "#e9ecef",
+        }
+
+    def theme_anwenden():
+        c = farben()
+        page.theme_mode = ft.ThemeMode.DARK if theme_state["dark"] else ft.ThemeMode.LIGHT
+        page.bgcolor = c["bg"]
+
+    def ist_mobil():
+        breite = page.width or page.window.width or 1200
+        return breite < 760
+
+    def feld_breite(max_breite):
+        if not ist_mobil():
+            return max_breite
+        breite = page.width or 360
+        return max(260, min(max_breite, breite - 32))
+
+    def responsive_row(controls, spacing=8, **kwargs):
+        return ft.Row(
+            controls=controls,
+            spacing=spacing,
+            run_spacing=spacing,
+            wrap=True,
+            **kwargs,
+        )
+
+    def tabellen_container(tabelle, bottom=0):
+        return ft.Container(
+            content=ft.Row([tabelle], scroll=ft.ScrollMode.AUTO),
+            padding=ft.Padding(top=8, left=0, right=0, bottom=bottom),
+        )
+
+    def rahmen():
+        c = farben()
+        return ft.Border(
+            top=ft.BorderSide(1, c["border"]),
+            bottom=ft.BorderSide(1, c["border"]),
+            left=ft.BorderSide(1, c["border"]),
+            right=ft.BorderSide(1, c["border"]),
+        )
+
+    def text_muted(wert, size=None, italic=False):
+        return ft.Text(wert, color=farben()["muted"], size=size, italic=italic)
+
+    theme_anwenden()
 
     # Aktuell eingeloggter Benutzer (wird nach Login befüllt)
     aktueller_benutzer = {"id": None, "name": None, "rolle": None}
@@ -47,15 +117,21 @@ def main(page: ft.Page):
     # ==================================================================
     def zeige_login():
         page.clean()
+        theme_anwenden()
+        c = farben()
 
-        benutzername_feld = ft.TextField(label="Benutzername", width=320)
+        benutzername_feld = ft.TextField(label="Benutzername", width=feld_breite(320))
         passwort_feld = ft.TextField(
             label="Passwort",
             password=True,
             can_reveal_password=True,
-            width=320,
+            width=feld_breite(320),
         )
         fehler_text = ft.Text("", color="red", size=13)
+
+        def theme_wechseln(e):
+            theme_state["dark"] = not theme_state["dark"]
+            zeige_login()
 
         def anmelden(e):
             if not benutzername_feld.value or not passwort_feld.value:
@@ -85,16 +161,24 @@ def main(page: ft.Page):
             ft.Column(
                 controls=[
                     ft.Text("BBSliothek", size=40, weight=ft.FontWeight.BOLD,
-                            color=ft.Colors.BLUE_700),
-                    ft.Text("Lernmaterialverwaltung", size=16, color="grey"),
+                            color=c["primary"]),
+                    text_muted("Lernmaterialverwaltung", size=16),
                     ft.Divider(height=30, color="transparent"),
                     ft.Card(
                         elevation=3,
+                        bgcolor=c["surface"],
                         content=ft.Container(
                             padding=32,
-                            width=380,
+                            width=feld_breite(380),
                             content=ft.Column([
-                                ft.Text("Anmelden", size=20, weight=ft.FontWeight.W_600),
+                                ft.Row([
+                                    ft.Text("Anmelden", size=20, weight=ft.FontWeight.W_600),
+                                    ft.IconButton(
+                                        icon=ft.Icons.LIGHT_MODE_OUTLINED if theme_state["dark"] else ft.Icons.DARK_MODE_OUTLINED,
+                                        tooltip="Theme wechseln",
+                                        on_click=theme_wechseln,
+                                    ),
+                                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                                 ft.Divider(height=10, color="transparent"),
                                 benutzername_feld,
                                 passwort_feld,
@@ -103,12 +187,12 @@ def main(page: ft.Page):
                                     "Anmelden",
                                     icon=ft.Icons.LOGIN,
                                     on_click=anmelden,
-                                    width=320,
+                                    width=feld_breite(320),
                                 ),
                             ], spacing=12),
                         ),
                     ),
-                    ft.Text("Testbenutzer: Mia Hoffmann / lehrer123", size=11, color="grey"),
+                    text_muted("Benutzername / Passwort: azubi123", size=11),
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 alignment=ft.MainAxisAlignment.CENTER,
@@ -121,8 +205,11 @@ def main(page: ft.Page):
     # ==================================================================
     # Hauptansicht (nach Login)
     # ==================================================================
-    def zeige_hauptansicht():
+    def zeige_hauptansicht(start_index=0):
+        ansicht["index"] = start_index
         page.clean()
+        theme_anwenden()
+        c = farben()
 
         inhalt = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=10)
 
@@ -135,15 +222,15 @@ def main(page: ft.Page):
         # Seite: Materialien
         # --------------------------------------------------------------
         def zeige_materialien(e=None):
-            titel_feld  = ft.TextField(label="Titel / Dateiname", width=220, dense=True)
-            typ_feld    = ft.TextField(label="Dateityp (.pdf …)", width=160, dense=True)
+            titel_feld  = ft.TextField(label="Titel / Dateiname", width=feld_breite(220), dense=True)
+            typ_feld    = ft.TextField(label="Dateityp (.pdf …)", width=feld_breite(160), dense=True)
             status_text = ft.Text("", size=13)
 
             # Autor-Filter Dropdown
             benutzer_liste = db.benutzer_laden()
             autor_filter = ft.Dropdown(
                 label="Autor",
-                width=180,
+                width=feld_breite(180),
                 dense=True,
                 options=[ft.dropdown.Option(key="", text="Alle")] + [
                     ft.dropdown.Option(key=str(b["benutzer_id"]), text=b["anzeigename"])
@@ -164,20 +251,15 @@ def main(page: ft.Page):
                     ft.DataColumn(ft.Text("Aktionen")),
                 ],
                 rows=[],
-                border=ft.Border(
-                    top=ft.BorderSide(1, "#dee2e6"),
-                    bottom=ft.BorderSide(1, "#dee2e6"),
-                    left=ft.BorderSide(1, "#dee2e6"),
-                    right=ft.BorderSide(1, "#dee2e6"),
-                ),
+                border=rahmen(),
                 border_radius=8,
-                vertical_lines=ft.BorderSide(1, "#dee2e6"),
-                heading_row_color="#e9ecef",
+                vertical_lines=ft.BorderSide(1, c["border"]),
+                heading_row_color=c["table_head"],
                 column_spacing=16,
             )
 
             # Dialog: neue Version hochladen
-            neueversion_pfad_feld = ft.TextField(label="Pfad zur neuen Datei", width=400)
+            neueversion_pfad_feld = ft.TextField(label="Pfad zur neuen Datei", width=feld_breite(400))
             neueversion_mat_id = {"id": None}
 
             def neueversion_speichern(e):
@@ -290,7 +372,7 @@ def main(page: ft.Page):
                         )
 
                     status_text.value = str(len(materialien)) + " Ergebnis(se)"
-                    status_text.color = "grey"
+                    status_text.color = c["muted"]
                     page.update()
                 except Exception as fehler:
                     status_text.value = "Fehler: " + str(fehler)
@@ -338,7 +420,7 @@ def main(page: ft.Page):
 
             seite_laden([
                 ft.Text("Lernmaterialien", size=26, weight=ft.FontWeight.BOLD),
-                ft.Row([
+                responsive_row([
                     titel_feld,
                     typ_feld,
                     autor_filter,
@@ -346,27 +428,27 @@ def main(page: ft.Page):
                     ft.TextButton("Zurücksetzen", on_click=zuruecksetzen),
                 ], spacing=8),
                 status_text,
-                ft.Container(content=tabelle, padding=ft.Padding(top=8, left=0, right=0, bottom=0)),
+                tabellen_container(tabelle),
             ])
 
         # --------------------------------------------------------------
         # Seite: Upload
         # --------------------------------------------------------------
         def zeige_upload(e=None):
-            dateiname_text = ft.Text("Keine Datei ausgewählt", italic=True, color="grey")
+            dateiname_text = text_muted("Keine Datei ausgewählt", italic=True)
 
             pfad_feld = ft.TextField(
                 label="Oder Pfad manuell eingeben",
-                width=500,
+                width=feld_breite(500),
                 hint_text=r"z.B. C:\Users\...\datei.pdf",
             )
 
-            titel_feld = ft.TextField(label="Titel des Materials", width=420)
+            titel_feld = ft.TextField(label="Titel des Materials", width=feld_breite(420))
 
             themen = db.themen_laden()
             thema_dropdown = ft.Dropdown(
                 label="Themengebiet",
-                width=280,
+                width=feld_breite(280),
                 options=[
                     ft.dropdown.Option(key=str(t["themengebiet_id"]), text=t["name"])
                     for t in themen
@@ -384,7 +466,7 @@ def main(page: ft.Page):
                 if f.path:
                     pfad_feld.value = f.path
                     dateiname_text.value = f.name
-                    dateiname_text.color = ft.Colors.BLUE_700
+                    dateiname_text.color = c["primary"]
                 else:
                     # Web-Modus: Browser gibt keinen lokalen Pfad zurück
                     dateiname_text.value = f.name + " (Pfad manuell eingeben)"
@@ -427,13 +509,14 @@ def main(page: ft.Page):
 
             seite_laden([
                 ft.Text("Neues Material hochladen", size=26, weight=ft.FontWeight.BOLD),
-                ft.Text("Neue Version eines bestehenden Materials → Materialien → Upload-Symbol", size=12, color="grey"),
+                text_muted("Neue Version eines bestehenden Materials → Materialien → Upload-Symbol", size=12),
                 ft.Card(
                     elevation=2,
+                    bgcolor=c["surface"],
                     content=ft.Container(
                         padding=24,
                         content=ft.Column([
-                            ft.Row([
+                            responsive_row([
                                 ft.FilledButton(
                                     "Datei auswählen …",
                                     icon=ft.Icons.ATTACH_FILE,
@@ -444,14 +527,14 @@ def main(page: ft.Page):
                             pfad_feld,
                             ft.Text(
                                 "Windows: Shift + Rechtsklick auf Datei → 'Als Pfad kopieren'",
-                                size=11, color="grey",
+                                size=11, color=c["muted"],
                             ),
                             ft.Divider(height=10),
                             titel_feld,
                             thema_dropdown,
                             ft.Text(
                                 "Hochladen als: " + aktueller_benutzer["name"],
-                                size=12, color="grey",
+                                size=12, color=c["muted"],
                             ),
                             ft.FilledButton(
                                 "Hochladen",
@@ -488,22 +571,17 @@ def main(page: ft.Page):
                             ])
                             for z in zeilen
                         ],
-                        border=ft.Border(
-                            top=ft.BorderSide(1, "#dee2e6"),
-                            bottom=ft.BorderSide(1, "#dee2e6"),
-                            left=ft.BorderSide(1, "#dee2e6"),
-                            right=ft.BorderSide(1, "#dee2e6"),
-                        ),
+                        border=rahmen(),
                         border_radius=8,
-                        heading_row_color="#e9ecef",
+                        heading_row_color=c["table_head"],
                     )
 
                     ergebnis.controls = [
                         ft.Text(titel, size=18, weight=ft.FontWeight.BOLD),
-                        ft.Text(beschreibung, color="grey", size=13),
-                        ft.Text(str(len(zeilen)) + " Zeile(n)", size=12, color="grey"),
+                        text_muted(beschreibung, size=13),
+                        text_muted(str(len(zeilen)) + " Zeile(n)", size=12),
                         ft.Divider(height=8),
-                        ft.Container(content=tabelle, padding=ft.Padding(top=0, left=0, right=0, bottom=20)),
+                        tabellen_container(tabelle, bottom=20),
                     ]
                     page.update()
                 except Exception as fehler:
@@ -519,33 +597,29 @@ def main(page: ft.Page):
                         leading=ft.CircleAvatar(
                             content=ft.Text(str(i + 1), size=13),
                             radius=16,
-                            bgcolor=ft.Colors.BLUE_100,
+                            bgcolor=c["primary_soft"],
                         ),
                         title=ft.Text(a["titel"], size=13),
                         subtitle=ft.Text(a["beschreibung"], size=11),
                         on_click=lambda e, x=n: abfrage_starten(x),
-                        hover_color="#e3f2fd",
+                        hover_color=c["primary_soft"],
                     )
                 )
 
+            abfragen_layout = ft.Column if ist_mobil() else ft.Row
             seite_laden([
                 ft.Text("Standardabfragen", size=26, weight=ft.FontWeight.BOLD),
-                ft.Row(
+                abfragen_layout(
                     controls=[
                         ft.Container(
                             content=abfrage_liste,
-                            width=400,
+                            width=feld_breite(400),
                             padding=10,
-                            border=ft.Border(
-                                top=ft.BorderSide(1, "#dee2e6"),
-                                bottom=ft.BorderSide(1, "#dee2e6"),
-                                left=ft.BorderSide(1, "#dee2e6"),
-                                right=ft.BorderSide(1, "#dee2e6"),
-                            ),
+                            border=rahmen(),
                             border_radius=8,
-                            bgcolor=ft.Colors.WHITE,
+                            bgcolor=c["surface"],
                         ),
-                        ft.VerticalDivider(width=1),
+                        ft.VerticalDivider(width=1) if not ist_mobil() else ft.Divider(height=1),
                         ft.Container(
                             content=ergebnis,
                             expand=True,
@@ -563,12 +637,12 @@ def main(page: ft.Page):
         def zeige_kommentare(e=None):
             materialien = db.materialien_laden()
             if len(materialien) == 0:
-                seite_laden([ft.Text("Noch keine Materialien vorhanden.", color="grey")])
+                seite_laden([text_muted("Noch keine Materialien vorhanden.")])
                 return
 
             material_dropdown = ft.Dropdown(
                 label="Material auswählen",
-                width=440,
+                width=feld_breite(440),
                 options=[
                     ft.dropdown.Option(
                         key=str(m["material_id"]),
@@ -582,7 +656,7 @@ def main(page: ft.Page):
                 multiline=True,
                 min_lines=3,
                 max_lines=5,
-                width=520,
+                width=feld_breite(520),
             )
             kommentar_liste = ft.Column([], spacing=8)
             status_text = ft.Text("", size=13)
@@ -593,7 +667,7 @@ def main(page: ft.Page):
                 label="Kommentar bearbeiten",
                 multiline=True,
                 min_lines=3,
-                width=420,
+                width=feld_breite(420),
             )
             edit_dialog_kid = {"id": None}
 
@@ -631,7 +705,7 @@ def main(page: ft.Page):
 
                     if len(kommentare) == 0:
                         kommentar_liste.controls.append(
-                            ft.Text("Noch keine Kommentare.", color="grey", italic=True)
+                            text_muted("Noch keine Kommentare.", italic=True)
                         )
                     else:
                         for k in kommentare:
@@ -657,16 +731,17 @@ def main(page: ft.Page):
                             kommentar_liste.controls.append(
                                 ft.Card(
                                     elevation=1,
+                                    bgcolor=c["surface"],
                                     content=ft.Container(
                                         padding=12,
                                         content=ft.Column([
                                             ft.Row([
                                                 ft.Icon(ft.Icons.ACCOUNT_CIRCLE, size=18,
-                                                        color=ft.Colors.BLUE_600),
+                                                        color=c["primary"]),
                                                 ft.Text(k["autor"],
                                                         weight=ft.FontWeight.BOLD, size=14),
                                                 ft.Text(str(k["erstellt_am"])[:16],
-                                                        size=11, color="grey"),
+                                                        size=11, color=c["muted"]),
                                                 ft.IconButton(
                                                     icon=ft.Icons.EDIT_OUTLINED,
                                                     icon_size=16,
@@ -729,10 +804,7 @@ def main(page: ft.Page):
                 ),
                 ft.Divider(),
                 ft.Text("Neuen Kommentar schreiben", size=15, weight=ft.FontWeight.W_600),
-                ft.Text(
-                    "Als: " + aktueller_benutzer["name"],
-                    size=12, color="grey",
-                ),
+                text_muted("Als: " + aktueller_benutzer["name"], size=12),
                 kommentar_feld,
                 ft.FilledButton("Senden", icon=ft.Icons.SEND, on_click=kommentar_senden),
                 status_text,
@@ -743,8 +815,8 @@ def main(page: ft.Page):
         # --------------------------------------------------------------
         def zeige_themen(e=None):
             themen_liste = ft.Column([], spacing=4)
-            name_feld        = ft.TextField(label="Name", width=300)
-            beschreibung_feld = ft.TextField(label="Beschreibung (optional)", width=400)
+            name_feld        = ft.TextField(label="Name", width=feld_breite(300))
+            beschreibung_feld = ft.TextField(label="Beschreibung (optional)", width=feld_breite(400))
             status_text = ft.Text("", size=13)
 
             def themen_neu_laden():
@@ -753,7 +825,7 @@ def main(page: ft.Page):
                 for t in themen:
                     themen_liste.controls.append(
                         ft.ListTile(
-                            leading=ft.Icon(ft.Icons.FOLDER_OUTLINED, color=ft.Colors.BLUE_600),
+                            leading=ft.Icon(ft.Icons.FOLDER_OUTLINED, color=c["primary"]),
                             title=ft.Text(t["name"]),
                             subtitle=ft.Text(str(t["anzahl_materialien"]) + " Materialien", size=12),
                             trailing=ft.IconButton(
@@ -770,7 +842,7 @@ def main(page: ft.Page):
             def zeige_materialien_nach_thema(thema_id):
                 zeilen = db.materialien_laden(thema_id=thema_id)
                 status_text.value = str(len(zeilen)) + " Materialien in diesem Thema"
-                status_text.color = "grey"
+                status_text.color = c["muted"]
                 # Materialien-Seite mit Filter öffnen
                 zeige_materialien()
                 page.update()
@@ -800,22 +872,17 @@ def main(page: ft.Page):
 
             seite_laden([
                 ft.Text("Themengebiete", size=26, weight=ft.FontWeight.BOLD),
-                ft.Row([
+                responsive_row([
                     ft.Container(
                         content=ft.Column([
                             ft.Text("Vorhandene Themen", size=15, weight=ft.FontWeight.W_600),
                             themen_liste,
                         ], spacing=6),
-                        width=320,
+                        width=feld_breite(320),
                         padding=14,
-                        border=ft.Border(
-                            top=ft.BorderSide(1, "#dee2e6"),
-                            bottom=ft.BorderSide(1, "#dee2e6"),
-                            left=ft.BorderSide(1, "#dee2e6"),
-                            right=ft.BorderSide(1, "#dee2e6"),
-                        ),
+                        border=rahmen(),
                         border_radius=8,
-                        bgcolor=ft.Colors.WHITE,
+                        bgcolor=c["surface"],
                     ),
                     ft.Container(
                         content=ft.Column([
@@ -825,7 +892,7 @@ def main(page: ft.Page):
                             ft.FilledButton("Anlegen", icon=ft.Icons.ADD, on_click=thema_anlegen),
                             status_text,
                         ], spacing=14),
-                        padding=ft.Padding(top=0, left=28, right=0, bottom=0),
+                        padding=ft.Padding(top=0, left=0 if ist_mobil() else 28, right=0, bottom=0),
                         expand=True,
                     ),
                 ], spacing=0, expand=True),
@@ -842,14 +909,9 @@ def main(page: ft.Page):
                     ft.DataColumn(ft.Text("Materialien")),
                 ],
                 rows=[],
-                border=ft.Border(
-                    top=ft.BorderSide(1, "#dee2e6"),
-                    bottom=ft.BorderSide(1, "#dee2e6"),
-                    left=ft.BorderSide(1, "#dee2e6"),
-                    right=ft.BorderSide(1, "#dee2e6"),
-                ),
+                border=rahmen(),
                 border_radius=8,
-                heading_row_color="#e9ecef",
+                heading_row_color=c["table_head"],
             )
 
             def benutzer_neu_laden():
@@ -867,13 +929,13 @@ def main(page: ft.Page):
 
             # Neuen Benutzer anlegen
             rollen = db.rollen_laden()
-            name_feld     = ft.TextField(label="Vorname",  width=180)
-            nachname_feld = ft.TextField(label="Nachname", width=180)
-            email_feld    = ft.TextField(label="E-Mail",   width=280)
-            passwort_feld = ft.TextField(label="Passwort", width=280, password=True, can_reveal_password=True)
+            name_feld     = ft.TextField(label="Vorname",  width=feld_breite(180))
+            nachname_feld = ft.TextField(label="Nachname", width=feld_breite(180))
+            email_feld    = ft.TextField(label="E-Mail",   width=feld_breite(280))
+            passwort_feld = ft.TextField(label="Passwort", width=feld_breite(280), password=True, can_reveal_password=True)
             rollen_dd = ft.Dropdown(
                 label="Rolle",
-                width=200,
+                width=feld_breite(200),
                 options=[
                     ft.dropdown.Option(key=str(r["rollen_id"]), text=r["name"])
                     for r in rollen
@@ -924,12 +986,12 @@ def main(page: ft.Page):
 
             seite_laden([
                 ft.Text("Benutzer", size=26, weight=ft.FontWeight.BOLD),
-                ft.Container(content=benutzer_tabelle, padding=ft.Padding(top=0, left=0, right=0, bottom=16)),
+                tabellen_container(benutzer_tabelle, bottom=16),
                 ft.Divider(),
                 ft.Text("Neuen Benutzer anlegen", size=15, weight=ft.FontWeight.W_600),
-                ft.Row([name_feld, nachname_feld], spacing=12),
-                ft.Row([email_feld], spacing=12),
-                ft.Row([passwort_feld, rollen_dd], spacing=12),
+                responsive_row([name_feld, nachname_feld], spacing=12),
+                responsive_row([email_feld], spacing=12),
+                responsive_row([passwort_feld, rollen_dd], spacing=12),
                 ft.FilledButton("Anlegen", icon=ft.Icons.PERSON_ADD, on_click=anlegen),
                 status_text,
             ])
@@ -937,19 +999,37 @@ def main(page: ft.Page):
         # --------------------------------------------------------------
         # Navigation
         # --------------------------------------------------------------
-        def navigation_geaendert(e):
-            idx = e.control.selected_index
+        def bereich_anzeigen(idx):
+            ansicht["index"] = idx
             if   idx == 0: zeige_materialien()
             elif idx == 1: zeige_upload()
             elif idx == 2: zeige_kommentare()
             elif idx == 3: zeige_themen()
             elif idx == 4: zeige_benutzer()
 
+        def navigation_geaendert(e):
+            bereich_anzeigen(e.control.selected_index)
+
+        def theme_wechseln(e):
+            theme_state["dark"] = not theme_state["dark"]
+            zeige_hauptansicht(ansicht["index"])
+
+        def bei_resize(e):
+            zeige_hauptansicht(ansicht["index"])
+
+        page.on_resize = bei_resize
+
+        theme_button = ft.IconButton(
+            icon=ft.Icons.LIGHT_MODE_OUTLINED if theme_state["dark"] else ft.Icons.DARK_MODE_OUTLINED,
+            tooltip="Theme wechseln",
+            on_click=theme_wechseln,
+        )
+
         nav = ft.NavigationRail(
-            selected_index=0,
+            selected_index=ansicht["index"],
             label_type=ft.NavigationRailLabelType.ALL,
             min_width=105,
-            bgcolor=ft.Colors.WHITE,
+            bgcolor=c["surface"],
             on_change=navigation_geaendert,
             leading=ft.Container(
                 content=ft.Column([
@@ -957,15 +1037,11 @@ def main(page: ft.Page):
                         "BBS\nliothek",
                         size=14,
                         weight=ft.FontWeight.BOLD,
-                        color=ft.Colors.BLUE_700,
+                        color=c["primary"],
                         text_align=ft.TextAlign.CENTER,
                     ),
-                    ft.Text(
-                        aktueller_benutzer["name"],
-                        size=10,
-                        color="grey",
-                        text_align=ft.TextAlign.CENTER,
-                    ),
+                    ft.Text(aktueller_benutzer["name"], size=10, color=c["muted"], text_align=ft.TextAlign.CENTER),
+                    theme_button,
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2),
                 padding=ft.Padding(top=14, left=4, right=4, bottom=4),
             ),
@@ -998,24 +1074,64 @@ def main(page: ft.Page):
             ],
         )
 
-        page.add(
-            ft.Row(
-                controls=[
-                    nav,
-                    ft.VerticalDivider(width=1),
-                    ft.Container(
-                        content=inhalt,
-                        expand=True,
-                        padding=24,
-                        bgcolor="#f8f9fa",
-                    ),
-                ],
-                expand=True,
-                spacing=0,
-            )
+        content = ft.Container(
+            content=inhalt,
+            expand=True,
+            padding=16 if ist_mobil() else 24,
+            bgcolor=c["bg"],
         )
+
+        if ist_mobil():
+            mobile_nav = ft.NavigationBar(
+                selected_index=ansicht["index"],
+                bgcolor=c["surface"],
+                on_change=navigation_geaendert,
+                destinations=[
+                    ft.NavigationBarDestination(icon=ft.Icons.LIBRARY_BOOKS_OUTLINED, selected_icon=ft.Icons.LIBRARY_BOOKS, label="Material"),
+                    ft.NavigationBarDestination(icon=ft.Icons.UPLOAD_FILE_OUTLINED, selected_icon=ft.Icons.UPLOAD_FILE, label="Upload"),
+                    ft.NavigationBarDestination(icon=ft.Icons.COMMENT_OUTLINED, selected_icon=ft.Icons.COMMENT, label="Kommentare"),
+                    ft.NavigationBarDestination(icon=ft.Icons.FOLDER_OUTLINED, selected_icon=ft.Icons.FOLDER, label="Themen"),
+                    ft.NavigationBarDestination(icon=ft.Icons.PEOPLE_OUTLINED, selected_icon=ft.Icons.PEOPLE, label="Benutzer"),
+                ],
+            )
+            page.add(
+                ft.Column(
+                    controls=[
+                        ft.Container(
+                            bgcolor=c["surface"],
+                            padding=ft.Padding(top=10, left=16, right=8, bottom=8),
+                            content=ft.Row(
+                                controls=[
+                                    ft.Column([
+                                        ft.Text("BBSliothek", size=18, weight=ft.FontWeight.BOLD, color=c["primary"]),
+                                        ft.Text(aktueller_benutzer["name"], size=11, color=c["muted"]),
+                                    ], spacing=0),
+                                    theme_button,
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            ),
+                        ),
+                        content,
+                        mobile_nav,
+                    ],
+                    expand=True,
+                    spacing=0,
+                )
+            )
+        else:
+            page.add(
+                ft.Row(
+                    controls=[
+                        nav,
+                        ft.VerticalDivider(width=1),
+                        content,
+                    ],
+                    expand=True,
+                    spacing=0,
+                )
+            )
         page.update()
-        zeige_materialien()
+        bereich_anzeigen(ansicht["index"])
 
     # App mit Login starten
     zeige_login()
